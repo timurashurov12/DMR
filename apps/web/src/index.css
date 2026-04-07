@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ayvan-bg-dark: #1a1510;
+  --color-ayvan-panel: #2d2520;
+  --color-ayvan-accent: #c9a962;
+  /* Единые границы и приглушённый текст по всему сайту */
+  --color-border: rgba(120, 113, 108, 0.4);
+  --color-fg-muted: #a8a29e;
+  --color-fg-subtle: #78716c;
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --color-surface-800: #2d2520;
+  --color-surface-700: #44403c;
+  --color-surface-600: #57534e;
+  --color-accent: #c9a962;
+  --color-accent-hover: #b89850;
+  --color-accent-muted: rgba(201, 169, 98, 0.15);
+  --shadow-glow: 0 0 20px -5px rgba(201, 169, 98, 0.2);
+  --shadow-card:
+    0 4px 6px -1px rgba(0, 0, 0, 0.35), 0 2px 4px -2px rgba(0, 0, 0, 0.25);
+}
+
+@layer base {
+  :root {
+    --scrollbar-track: #1a1510;
+    --scrollbar-thumb: #44403c;
+    --scrollbar-thumb-hover: #57534e;
+  }
+  html {
+    scroll-behavior: smooth;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    scrollbar-width: thin;
+  }
+  body {
+    @apply bg-ayvan-bg-dark text-stone-100 antialiased min-h-screen;
+    font-family: var(--font-sans);
+  }
+  a:focus-visible,
+  button:focus-visible {
+    @apply outline-none ring-2 ring-ayvan-accent ring-offset-2 ring-offset-ayvan-bg-dark;
+  }
+}
+
+@layer utilities {
+  .animate-in {
+    animation: fade-in 0.35s ease-out forwards;
+  }
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
+}
+
+/* Admin panel — ayvan palette */
+@layer components {
+  .input-dark {
+    @apply w-full rounded-lg border border-border bg-ayvan-panel/80 px-3 py-2.5 text-stone-100 placeholder-fg-subtle
+           focus:border-ayvan-accent focus:outline-none focus:ring-2 focus:ring-ayvan-accent/30 transition-colors;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-ayvan-accent px-4 py-2.5 font-medium text-ayvan-bg-dark
+           shadow-glow hover:bg-ayvan-accent/90 focus:outline-none focus:ring-2 focus:ring-ayvan-accent focus:ring-offset-2 focus:ring-offset-ayvan-bg-dark
+           disabled:opacity-50 disabled:cursor-not-allowed transition-all;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-ayvan-panel/50 px-4 py-2.5 font-medium text-stone-200
+           hover:bg-stone-800/90 hover:border-stone-600/80 focus:outline-none focus:ring-2 focus:ring-ayvan-accent/40 focus:ring-offset-2 focus:ring-offset-ayvan-bg-dark
+           disabled:opacity-50 transition-colors;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-stone-300
+           hover:bg-ayvan-panel hover:text-stone-100 focus:outline-none transition-colors;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-red-400
+           hover:bg-red-500/15 hover:text-red-300 focus:outline-none transition-colors;
+  }
+  .card {
+    @apply rounded-xl border border-border bg-ayvan-panel/80 shadow-card;
+  }
+  .checkbox {
+    @apply h-4 w-4 shrink-0 rounded cursor-pointer
+           focus:outline-none focus:ring-2 focus:ring-ayvan-accent/30 focus:ring-offset-2 focus:ring-offset-ayvan-bg-dark
+           transition-colors duration-150;
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: var(--color-ayvan-bg-dark);
+    border: 1px solid rgba(120, 113, 108, 0.4);
+  }
+  .checkbox:checked {
+    background-color: var(--color-ayvan-accent);
+    border-color: var(--color-ayvan-accent);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%231a1510' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 6l3 3 5-6'/%3E%3C/svg%3E");
+    background-size: 75%;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.offcanvas-slide-in {
+  animation: slide-in-right 0.2s ease-out;
+}

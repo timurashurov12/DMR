@@ -1,0 +1,27 @@
+{
+  "name": "ayvan",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "build": "npm run build:api && npm run build:web"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "overrides": {
+    "vite": "^6.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.15.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "eslint": "^9.15.0",
+    "eslint-plugin-react": "^7.37.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "typescript-eslint": "^8.15.0"
+  }
+}
