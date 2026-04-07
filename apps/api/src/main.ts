@@ -55,9 +55,9 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api', app, document);
 
-  const port = process.env.API_PORT || 3000;
-  await app.listen(port);
-  console.log(`API running on http://localhost:${port}`);
+  const port = Number(process.env.PORT || process.env.API_PORT || 3000);
+  await app.listen(port, '0.0.0.0');
+  console.log(`API listening on port ${port}`);
   console.log(`Swagger: http://localhost:${port}/api`);
   if (process.env.TRANSLATE_PROVIDER?.trim()) {
     console.log(`Translate: ${process.env.TRANSLATE_PROVIDER}`);

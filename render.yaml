@@ -1,0 +1,13 @@
+# Render Blueprint: New → Blueprint → выбрать репозиторий. Секреты задать в Dashboard.
+
+services:
+  - type: web
+    name: dmr-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm ci && npm run prisma:generate -w apps/api && npm run build -w apps/api
+    startCommand: cd apps/api && npx prisma migrate deploy && npm run start:prod
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
