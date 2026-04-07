@@ -2,6 +2,8 @@ import { Controller, Post, Param, Body, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiPropertyOptional } from '@nestjs/swagger';
 import { TranslateService } from './translate.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RestaurantAccessGuard } from '../common/guards/restaurant-access.guard';
+import { AdminRestaurantId } from '../common/decorators/admin-restaurant.decorator';
 import { BulkTranslateDto } from '../common/dto/bulk-translate.dto';
 
 export class TranslateBodyDto {
@@ -12,37 +14,58 @@ export class TranslateBodyDto {
 @ApiTags('Admin / Translate')
 @ApiBearerAuth('JWT-auth')
 @Controller('admin')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RestaurantAccessGuard)
 export class TranslateController {
   constructor(private readonly translateService: TranslateService) {}
 
   @Post('menu-types/bulk-translate')
-  bulkTranslateMenuTypes(@Body() body: BulkTranslateDto) {
-    return this.translateService.bulkTranslateMenuTypes(body.ids, body.targetLocales);
+  bulkTranslateMenuTypes(
+    @AdminRestaurantId() restaurantId: string,
+    @Body() body: BulkTranslateDto,
+  ) {
+    return this.translateService.bulkTranslateMenuTypes(body.ids, restaurantId, body.targetLocales);
   }
 
   @Post('menu-types/:id/translate')
-  translateMenuType(@Param('id') id: string, @Body() body?: TranslateBodyDto) {
-    return this.translateService.translateMenuType(id, body?.targetLocales);
+  translateMenuType(
+    @AdminRestaurantId() restaurantId: string,
+    @Param('id') id: string,
+    @Body() body?: TranslateBodyDto,
+  ) {
+    return this.translateService.translateMenuType(id, restaurantId, body?.targetLocales);
   }
 
   @Post('categories/bulk-translate')
-  bulkTranslateCategories(@Body() body: BulkTranslateDto) {
-    return this.translateService.bulkTranslateCategories(body.ids, body.targetLocales);
+  bulkTranslateCategories(
+    @AdminRestaurantId() restaurantId: string,
+    @Body() body: BulkTranslateDto,
+  ) {
+    return this.translateService.bulkTranslateCategories(body.ids, restaurantId, body.targetLocales);
   }
 
   @Post('categories/:id/translate')
-  translateCategory(@Param('id') id: string, @Body() body?: TranslateBodyDto) {
-    return this.translateService.translateCategory(id, body?.targetLocales);
+  translateCategory(
+    @AdminRestaurantId() restaurantId: string,
+    @Param('id') id: string,
+    @Body() body?: TranslateBodyDto,
+  ) {
+    return this.translateService.translateCategory(id, restaurantId, body?.targetLocales);
   }
 
   @Post('menu-items/bulk-translate')
-  bulkTranslateMenuItems(@Body() body: BulkTranslateDto) {
-    return this.translateService.bulkTranslateMenuItems(body.ids, body.targetLocales);
+  bulkTranslateMenuItems(
+    @AdminRestaurantId() restaurantId: string,
+    @Body() body: BulkTranslateDto,
+  ) {
+    return this.translateService.bulkTranslateMenuItems(body.ids, restaurantId, body.targetLocales);
   }
 
   @Post('menu-items/:id/translate')
-  translateMenuItem(@Param('id') id: string, @Body() body?: TranslateBodyDto) {
-    return this.translateService.translateMenuItem(id, body?.targetLocales);
+  translateMenuItem(
+    @AdminRestaurantId() restaurantId: string,
+    @Param('id') id: string,
+    @Body() body?: TranslateBodyDto,
+  ) {
+    return this.translateService.translateMenuItem(id, restaurantId, body?.targetLocales);
   }
 }

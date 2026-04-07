@@ -44,7 +44,7 @@ export function LanguageSwitcher() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 min-h-9 px-3 py-2 rounded-xl bg-ayvan-panel border border-border text-stone-100 text-sm font-medium hover:border-ayvan-accent/45 focus:outline-none focus:ring-2 focus:ring-ayvan-accent/40"
+        className="flex items-center gap-1.5 min-h-9 px-3 py-2 rounded-xl bg-app-panel border border-border text-stone-100 text-sm font-medium hover:border-app-accent/45 focus:outline-none focus:ring-2 focus:ring-app-accent/40"
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-label="Выбрать язык"
@@ -53,14 +53,14 @@ export function LanguageSwitcher() {
           {currentLang.name || currentLang.code}
         </span>
         <ChevronDown
-          className={`w-4 h-4 shrink-0 text-ayvan-accent transition-transform ${open ? "rotate-180" : ""}`}
+          className={`w-4 h-4 shrink-0 text-app-accent transition-transform ${open ? "rotate-180" : ""}`}
         />
       </button>
 
       {open && (
         <ul
           role="listbox"
-          className="absolute right-0 top-full mt-1.5 min-w-40 w-[max(100%,--spacing(40))] max-w-[calc(100vw-2rem)] py-1 rounded-xl bg-ayvan-panel border border-border shadow-card z-50 overflow-hidden"
+          className="absolute right-0 top-full mt-1.5 min-w-40 w-[max(100%,--spacing(40))] max-w-[calc(100vw-2rem)] py-1 rounded-xl bg-app-panel border border-border shadow-card z-50 overflow-hidden"
           style={{ maxHeight: "min(16rem, 60vh)" }}
         >
           {languages.map((lang) => (
@@ -73,7 +73,7 @@ export function LanguageSwitcher() {
                 type="button"
                 className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
                   locale === lang.code
-                    ? "bg-ayvan-accent/15 text-ayvan-accent font-medium"
+                    ? "bg-app-accent/15 text-app-accent font-medium"
                     : "text-stone-100 hover:bg-stone-800/80"
                 }`}
                 onClick={() => {

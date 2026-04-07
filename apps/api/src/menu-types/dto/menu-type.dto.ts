@@ -10,13 +10,19 @@ class TranslationDto {
 
 export class CreateMenuTypeDto {
   @IsString()
+  menuId!: string;
+
+  @IsString()
   code!: string;
+
   @IsOptional()
   @IsNumber()
   sortOrder?: number;
+
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
@@ -28,12 +34,19 @@ export class UpdateMenuTypeDto {
   @IsOptional()
   @IsString()
   code?: string;
+
   @IsOptional()
   @IsNumber()
   sortOrder?: number;
+
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  imagePath?: string | null;
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

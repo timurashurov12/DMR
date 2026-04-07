@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { login as apiLogin } from '@/features/admin/lib/api';
 
-const TOKEN_KEY = 'ayvan-admin-token';
+const TOKEN_KEY = 'restaurant-admin-token';
 
 type AuthContextType = {
   token: string | null;

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchLanguages } from '@/shared/lib/api';
 
-const STORAGE_KEY = 'ayvan-locale';
+const STORAGE_KEY = 'restaurant-public-locale';
 
 function getInitialLocale(): string {
   if (typeof window === 'undefined') return 'ru';

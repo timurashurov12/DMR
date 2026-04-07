@@ -1,53 +1,91 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
+} from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { MenuItemsService } from './menu-items.service';
 import {
   CreateMenuItemDto,
   UpdateMenuItemDto,
   BulkUpdateMenuItemDto,
   BulkDeleteMenuItemDto,
+  QueryMenuItemsDto,
 } from './dto/menu-item.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RestaurantAccessGuard } from '../common/guards/restaurant-access.guard';
+import { AdminRestaurantId } from '../common/decorators/admin-restaurant.decorator';
+import { multerImageOptions } from '../common/upload/multer-image.config';
 
 @ApiTags('Admin / Menu Items')
 @ApiBearerAuth('JWT-auth')
 @Controller('admin/menu-items')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RestaurantAccessGuard)
 export class MenuItemsController {
   constructor(private readonly menuItemsService: MenuItemsService) {}
 
   @Post()
-  create(@Body() dto: CreateMenuItemDto) {
-    return this.menuItemsService.create(dto);
+  create(@AdminRestaurantId() restaurantId: string, @Body() dto: CreateMenuItemDto) {
+    return this.menuItemsService.create(restaurantId, dto);
   }
 
   @Get()
-  findAll(@Query('categoryId') categoryId?: string) {
-    return this.menuItemsService.findAll(categoryId);
+  findAll(@AdminRestaurantId() restaurantId: string, @Query() query: QueryMenuItemsDto) {
+    return this.menuItemsService.findAllPaginated(restaurantId, query);
   }
 
   @Patch('bulk')
-  bulkUpdate(@Body() dto: BulkUpdateMenuItemDto) {
-    return this.menuItemsService.bulkUpdate(dto);
+  bulkUpdate(@AdminRestaurantId() restaurantId: string, @Body() dto: BulkUpdateMenuItemDto) {
+    return this.menuItemsService.bulkUpdate(restaurantId, dto);
   }
 
   @Post('bulk-delete')
-  bulkDelete(@Body() dto: BulkDeleteMenuItemDto) {
-    return this.menuItemsService.bulkDelete(dto);
+  bulkDelete(@AdminRestaurantId() restaurantId: string, @Body() dto: BulkDeleteMenuItemDto) {
+    return this.menuItemsService.bulkDelete(restaurantId, dto);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.menuItemsService.findOne(id);
+  findOne(@AdminRestaurantId() restaurantId: string, @Param('id') id: string) {
+    return this.menuItemsService.findOne(id, restaurantId);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateMenuItemDto) {
-    return this.menuItemsService.update(id, dto);
+  update(
+    @AdminRestaurantId() restaurantId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateMenuItemDto,
+  ) {
+    return this.menuItemsService.update(id, restaurantId, dto);
+  }
+
+  @Post(':id/image')
+  @UseInterceptors(FileInterceptor('file', multerImageOptions('menu-item')))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } },
+  })
+  async uploadImage(
+    @AdminRestaurantId() restaurantId: string,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('Файл не загружен');
+    const imagePath = `/uploads/${file.filename}`;
+    return this.menuItemsService.setImagePath(id, restaurantId, imagePath);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.menuItemsService.remove(id);
+  remove(@AdminRestaurantId() restaurantId: string, @Param('id') id: string) {
+    return this.menuItemsService.remove(id, restaurantId);
   }
 }

@@ -362,8 +362,14 @@ const BAR_MENU_CATEGORIES: CategorySeed[] = [
   },
 ];
 
-async function seedMenuCategories(menuTypeCode: string, categories: CategorySeed[]) {
-  const menuType = await prisma.menuType.findUnique({ where: { code: menuTypeCode } });
+async function seedMenuCategories(
+  menuId: string,
+  menuTypeCode: string,
+  categories: CategorySeed[],
+) {
+  const menuType = await prisma.menuType.findFirst({
+    where: { menuId, code: menuTypeCode },
+  });
   if (!menuType) throw new Error(`MenuType ${menuTypeCode} not found`);
 
   await prisma.category.deleteMany({ where: { menuTypeId: menuType.id } });
@@ -404,6 +410,9 @@ async function seedMenuCategories(menuTypeCode: string, categories: CategorySeed
   }
 }
 
+const SEED_RESTAURANT_ID = 'cm_seed_restaurant';
+const SEED_MENU_ID = 'cm_seed_menu_default';
+
 async function main() {
   for (const lang of LANGUAGES) {
     await prisma.language.upsert({
@@ -413,10 +422,50 @@ async function main() {
     });
   }
 
+  const restaurant = await prisma.restaurant.upsert({
+    where: { id: SEED_RESTAURANT_ID },
+    create: {
+      id: SEED_RESTAURANT_ID,
+      name: 'DMR — Digital Menu Restaurant',
+      slug: 'default',
+    },
+    update: { name: 'DMR — Digital Menu Restaurant' },
+  });
+
+  const menu = await prisma.menu.upsert({
+    where: { id: SEED_MENU_ID },
+    create: {
+      id: SEED_MENU_ID,
+      restaurantId: restaurant.id,
+      name: 'Основное меню',
+      sortOrder: 0,
+      isActive: true,
+    },
+    update: {},
+  });
+
+  await prisma.restaurantDomain.upsert({
+    where: { host: 'localhost' },
+    create: { host: 'localhost', restaurantId: restaurant.id },
+    update: { restaurantId: restaurant.id },
+  });
+
+  await prisma.siteSettings.upsert({
+    where: { restaurantId: restaurant.id },
+    create: { restaurantId: restaurant.id },
+    update: {},
+  });
+
   for (const mt of MENU_TYPES) {
     const created = await prisma.menuType.upsert({
-      where: { code: mt.code },
-      create: { code: mt.code, sortOrder: mt.sortOrder },
+      where: {
+        menuId_code: { menuId: menu.id, code: mt.code },
+      },
+      create: {
+        menuId: menu.id,
+        code: mt.code,
+        sortOrder: mt.sortOrder,
+      },
       update: { sortOrder: mt.sortOrder },
     });
     for (const [locale, name] of Object.entries(mt.names)) {
@@ -428,18 +477,30 @@ async function main() {
     }
   }
 
-  await seedMenuCategories('main', MAIN_MENU_CATEGORIES);
-  await seedMenuCategories('bar', BAR_MENU_CATEGORIES);
+  await seedMenuCategories(menu.id, 'main', MAIN_MENU_CATEGORIES);
+  await seedMenuCategories(menu.id, 'bar', BAR_MENU_CATEGORIES);
 
-  const adminEmail = 'admin@ayvan.local';
-  const existing = await prisma.user.findUnique({ where: { email: adminEmail } });
-  if (!existing) {
+  const adminEmail = 'admin@demo.local';
+  let user = await prisma.user.findUnique({ where: { email: adminEmail } });
+  if (!user) {
     const hash = await bcrypt.hash('admin123', 10);
-    await prisma.user.create({
+    user = await prisma.user.create({
       data: { email: adminEmail, passwordHash: hash },
     });
-    console.log('Admin user created: admin@ayvan.local / admin123');
+    console.log('Admin user created: admin@demo.local / admin123');
   }
+
+  await prisma.userRestaurant.upsert({
+    where: {
+      userId_restaurantId: { userId: user.id, restaurantId: restaurant.id },
+    },
+    create: {
+      userId: user.id,
+      restaurantId: restaurant.id,
+      role: 'OWNER',
+    },
+    update: { role: 'OWNER' },
+  });
 
   console.log('Seed completed.');
 }

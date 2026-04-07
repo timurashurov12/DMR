@@ -127,7 +127,7 @@ export function TranslateModal({
               <button
                 type="button"
                 onClick={selectAll}
-                className="text-sm text-ayvan-accent hover:underline"
+                className="text-sm text-app-accent hover:underline"
               >
                 Выбрать все
               </button>

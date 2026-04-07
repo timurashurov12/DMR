@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  fetchSiteSettings,
+  fetchSiteSettingsAdmin,
   uploadLogo,
   updateSiteSettings,
   fetchLanguagesAdmin,
@@ -13,7 +13,9 @@ import {
   updateUserAdmin,
   deleteUserAdmin,
 } from "@/features/admin/lib/api";
+import { useRestaurant } from "@/features/admin/context/RestaurantContext";
 import { toast } from "sonner";
+import { BRAND_NAME } from "@/shared/lib/brand";
 import {
   ImagePlus,
   Loader2,
@@ -42,6 +44,7 @@ type SettingsTab = "appearance" | "languages" | "users";
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
+  const { restaurantId } = useRestaurant();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [footerDraft, setFooterDraft] = useState<string>("");
   const [siteNameDraft, setSiteNameDraft] = useState("");
@@ -59,9 +62,13 @@ export function SettingsPage() {
   const [dragOver, setDragOver] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
 
+  const [ownerTg, setOwnerTg] = useState("");
+  const [staffTg, setStaffTg] = useState("");
+
   const { data: settings, isLoading } = useQuery({
-    queryKey: ["admin", "site-settings"],
-    queryFn: fetchSiteSettings,
+    queryKey: ["admin", "site-settings", restaurantId],
+    queryFn: fetchSiteSettingsAdmin,
+    enabled: !!restaurantId,
   });
 
   const { data: languages, isLoading: languagesLoading } = useQuery({
@@ -224,6 +231,14 @@ export function SettingsPage() {
     if (settings?.contactText !== undefined)
       setContactDraft(settings.contactText ?? "");
   }, [settings?.contactText]);
+  useEffect(() => {
+    if (settings?.ownerTelegramChatId !== undefined)
+      setOwnerTg(settings.ownerTelegramChatId ?? "");
+  }, [settings?.ownerTelegramChatId]);
+  useEffect(() => {
+    if (settings?.staffTelegramChatId !== undefined)
+      setStaffTg(settings.staffTelegramChatId ?? "");
+  }, [settings?.staffTelegramChatId]);
 
   const handleSaveFooter = () => {
     updateSettingsMu.mutate(
@@ -255,7 +270,7 @@ export function SettingsPage() {
   const footerPreviewText =
     footerDraft.trim() ||
     settings?.siteName?.trim() ||
-    "Ayvan Restaurant";
+    BRAND_NAME;
 
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "appearance", label: "Внешний вид" },
@@ -284,7 +299,7 @@ export function SettingsPage() {
               onClick={() => setActiveTab(tab.id)}
               className={`px-4 py-3 text-sm font-medium rounded-t-lg border-b-2 -mb-px transition-colors ${
                 activeTab === tab.id
-                  ? "border-ayvan-accent text-ayvan-accent bg-stone-800/50"
+                  ? "border-app-accent text-app-accent bg-stone-800/50"
                   : "border-transparent text-stone-400 hover:text-stone-200 hover:bg-stone-800/30"
               }`}
             >
@@ -295,8 +310,8 @@ export function SettingsPage() {
       </div>
 
       {activeTab === "appearance" && (
-      <div className="rounded-2xl overflow-hidden border border-stone-700/60 bg-ayvan-panel/80 shadow-lg">
-        <div className="h-1.5 bg-ayvan-accent" aria-hidden />
+      <div className="rounded-2xl overflow-hidden border border-stone-700/60 bg-app-panel/80 shadow-lg">
+        <div className="h-1.5 bg-app-accent" aria-hidden />
         <div className="p-6 space-y-6">
           <h2 className="text-lg font-medium text-stone-200">
             Внешний вид сайта
@@ -316,14 +331,14 @@ export function SettingsPage() {
               onDragLeave={handleDragLeave}
               className={`rounded-xl border-2 border-dashed transition-colors ${
                 dragOver
-                  ? "border-ayvan-accent/50 bg-ayvan-accent/5"
+                  ? "border-app-accent/50 bg-app-accent/5"
                   : "border-stone-600 bg-stone-800/30"
               } p-6 flex flex-wrap items-end gap-6`}
             >
               <div className="flex flex-col gap-3">
                 {isLoading ? (
                   <div className="w-48 h-24 border border-stone-700 rounded-lg bg-stone-800 flex items-center justify-center">
-                    <span className="inline-block w-6 h-6 border-2 border-ayvan-accent border-t-transparent rounded-full animate-spin" />
+                    <span className="inline-block w-6 h-6 border-2 border-app-accent border-t-transparent rounded-full animate-spin" />
                   </div>
                 ) : logoUrl ? (
                   <div className="relative">
@@ -353,7 +368,7 @@ export function SettingsPage() {
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={uploadMu.isPending}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-ayvan-accent/20 text-ayvan-accent border border-ayvan-accent/40 hover:bg-ayvan-accent/30 disabled:opacity-50 text-sm font-medium"
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-app-accent/20 text-app-accent border border-app-accent/40 hover:bg-app-accent/30 disabled:opacity-50 text-sm font-medium"
                     >
                       {uploadMu.isPending ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -395,7 +410,7 @@ export function SettingsPage() {
                 value={siteNameDraft}
                 onChange={(e) => setSiteNameDraft(e.target.value)}
                 className="input-dark max-w-xs"
-                placeholder="Ayvan Restaurant"
+                placeholder={BRAND_NAME}
               />
               <button
                 type="button"
@@ -435,6 +450,70 @@ export function SettingsPage() {
             </div>
           </div>
 
+          <div>
+            <h3 className="text-sm font-medium text-stone-300 mb-2">
+              Telegram (заказы)
+            </h3>
+            <p className="text-sm text-stone-500 mb-2">
+              На сервере задайте <code className="text-stone-400">TELEGRAM_BOT_TOKEN</code> и
+              зарегистрируйте webhook на <code className="text-stone-400">POST /telegram/webhook</code>{" "}
+              (опционально <code className="text-stone-400">TELEGRAM_WEBHOOK_SECRET</code>).
+            </p>
+            {import.meta.env.VITE_TELEGRAM_BOT_USERNAME && restaurantId ? (
+              <p className="text-sm text-stone-400 mb-3">
+                <a
+                  href={`https://t.me/${String(import.meta.env.VITE_TELEGRAM_BOT_USERNAME).replace(/^@/, "")}?start=owner_${restaurantId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-app-accent hover:underline font-medium"
+                >
+                  Подключить Telegram (открыть бота и нажать Start)
+                </a>
+                <span className="block mt-1 text-xs text-stone-500">
+                  Chat ID подставится автоматически после /start.
+                </span>
+              </p>
+            ) : (
+              <p className="text-xs text-stone-500 mb-3 max-w-md">
+                Для автопривязки добавьте в <code className="text-stone-400">.env</code> веба{" "}
+                <code className="text-stone-400">VITE_TELEGRAM_BOT_USERNAME</code> (имя бота без @)
+                — появится ссылка. Или введите Chat ID вручную ниже.
+              </p>
+            )}
+            <div className="space-y-2 max-w-md">
+              <input
+                type="text"
+                value={ownerTg}
+                onChange={(e) => setOwnerTg(e.target.value)}
+                className="input-dark w-full"
+                placeholder="Chat ID владельца"
+              />
+              <input
+                type="text"
+                value={staffTg}
+                onChange={(e) => setStaffTg(e.target.value)}
+                className="input-dark w-full"
+                placeholder="Chat ID сотрудника (опционально)"
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  updateSettingsMu.mutate(
+                    {
+                      ownerTelegramChatId: ownerTg.trim() || null,
+                      staffTelegramChatId: staffTg.trim() || null,
+                    },
+                    { onSuccess: () => toast.success("Telegram сохранён") },
+                  )
+                }
+                disabled={updateSettingsMu.isPending}
+                className="btn-primary"
+              >
+                Сохранить Telegram
+              </button>
+            </div>
+          </div>
+
           {/* Футер */}
           <div>
             <h3 className="text-sm font-medium text-stone-300 mb-2">
@@ -448,7 +527,7 @@ export function SettingsPage() {
               onChange={(e) => {
                 setFooterDraft(e.target.value);
               }}
-              placeholder="Например: © 2025 Ayvan Restaurant"
+              placeholder={`Например: © 2025 ${BRAND_NAME}`}
               rows={3}
               className="input-dark mb-2 resize-y min-h-[80px]"
             />
@@ -496,7 +575,7 @@ export function SettingsPage() {
         </p>
         {languagesLoading ? (
           <div className="flex items-center gap-2 text-stone-400 py-4">
-            <span className="inline-block w-5 h-5 border-2 border-ayvan-accent border-t-transparent rounded-full animate-spin" />
+            <span className="inline-block w-5 h-5 border-2 border-app-accent border-t-transparent rounded-full animate-spin" />
             Загрузка...
           </div>
         ) : !languages?.length ? (
@@ -550,7 +629,7 @@ export function SettingsPage() {
                         <button
                           type="button"
                           onClick={() => setEditingLang(item)}
-                          className="btn-ghost text-ayvan-accent hover:bg-ayvan-accent/10"
+                          className="btn-ghost text-app-accent hover:bg-app-accent/10"
                           title="Изменить"
                         >
                           <Pencil className="w-4 h-4" />
@@ -591,7 +670,7 @@ export function SettingsPage() {
         </p>
         {usersLoading ? (
           <div className="flex items-center gap-2 text-stone-400 py-4">
-            <span className="inline-block w-5 h-5 border-2 border-ayvan-accent border-t-transparent rounded-full animate-spin" />
+            <span className="inline-block w-5 h-5 border-2 border-app-accent border-t-transparent rounded-full animate-spin" />
             Загрузка...
           </div>
         ) : !users?.length ? (
@@ -637,7 +716,7 @@ export function SettingsPage() {
                         <button
                           type="button"
                           onClick={() => setEditingUser(item)}
-                          className="btn-ghost text-ayvan-accent hover:bg-ayvan-accent/10"
+                          className="btn-ghost text-app-accent hover:bg-app-accent/10"
                           title="Изменить"
                         >
                           <Pencil className="w-4 h-4" />

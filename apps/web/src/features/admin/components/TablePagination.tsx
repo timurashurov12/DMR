@@ -41,7 +41,7 @@ export function TablePagination({
   const end = Math.min(start + pageSize, total);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 border-t border-border bg-ayvan-bg-dark/40">
+    <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 border-t border-border bg-app-bg/40">
       <div className="flex items-center gap-3 text-sm text-stone-400">
         <span>
           Показано {start + 1}–{end} из {total}
@@ -84,7 +84,7 @@ export function TablePagination({
                 onClick={() => onPageChange(p)}
                 className={`min-w-[2rem] h-8 px-2 text-sm font-medium rounded-lg ${
                   p === currentPage
-                    ? 'bg-ayvan-accent text-ayvan-bg-dark'
+                    ? 'bg-app-accent text-app-bg'
                     : 'text-stone-400 hover:bg-stone-700 hover:text-stone-200'
                 }`}
               >

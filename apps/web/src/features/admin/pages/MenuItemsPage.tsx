@@ -1,6 +1,11 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   fetchMenuItemsAdmin,
   fetchCategoriesAdmin,
@@ -8,6 +13,7 @@ import {
   fetchLanguagesAdmin,
   createMenuItem,
   updateMenuItem,
+  uploadMenuItemImage,
   deleteMenuItem,
   bulkUpdateMenuItems,
   bulkDeleteMenuItems,
@@ -16,12 +22,15 @@ import {
   getTranslateResultMessage,
   type TranslateResult,
 } from "@/features/admin/lib/api";
+import { useRestaurant } from "@/features/admin/context/RestaurantContext";
 import {
   localeIntersection,
   normalizeLocaleCode,
 } from "@/features/admin/lib/locale-intersection";
 import { toastBulkTranslateResult } from "@/features/admin/lib/translate-toasts";
 import { toast } from "sonner";
+import { publicUploadUrl } from "@/shared/lib/api";
+import { isValidHttpImageUrl } from "@/features/admin/lib/validate-image-url";
 import { TranslateModal } from "@/features/admin/components/TranslateModal";
 import { TablePagination } from "@/features/admin/components/TablePagination";
 import {
@@ -34,6 +43,7 @@ import {
   SlidersHorizontal,
   X,
   Search,
+  ImagePlus,
 } from "lucide-react";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
@@ -71,6 +81,7 @@ type MenuItemRow = {
 
 export function MenuItemsPage() {
   const queryClient = useQueryClient();
+  const { restaurantId } = useRestaurant();
   const [categoryFilter, setCategoryFilter] = useState("");
   const [menuTypeFilter, setMenuTypeFilter] = useState("");
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>("");
@@ -88,21 +99,52 @@ export function MenuItemsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkCategoryModal, setBulkCategoryModal] = useState(false);
   const [bulkTranslateOpen, setBulkTranslateOpen] = useState(false);
+  const [selectionById, setSelectionById] = useState<Map<string, MenuItemRow>>(
+    new Map(),
+  );
 
   const { data: categories } = useQuery({
-    queryKey: ["admin", "categories"],
+    queryKey: ["admin", "categories", "all", restaurantId],
     queryFn: () => fetchCategoriesAdmin(),
+    enabled: !!restaurantId,
   });
 
   const { data: menuTypes } = useQuery({
-    queryKey: ["admin", "menu-types"],
-    queryFn: fetchMenuTypesAdmin,
+    queryKey: ["admin", "menu-types", "all", restaurantId],
+    queryFn: () => fetchMenuTypesAdmin(),
+    enabled: !!restaurantId,
   });
 
-  const { data: list, isLoading } = useQuery({
-    queryKey: ["admin", "menu-items", categoryFilter],
-    queryFn: () => fetchMenuItemsAdmin(categoryFilter || undefined),
+  const { data, isLoading } = useQuery({
+    queryKey: [
+      "admin",
+      "menu-items",
+      restaurantId,
+      categoryFilter,
+      menuTypeFilter,
+      activeFilter,
+      searchQuery.trim(),
+      sortBy,
+      sortDir,
+      page,
+      pageSize,
+    ],
+    queryFn: () =>
+      fetchMenuItemsAdmin({
+        categoryId: categoryFilter || undefined,
+        menuTypeId: menuTypeFilter || undefined,
+        active: activeFilter || undefined,
+        search: searchQuery.trim() || undefined,
+        sortBy,
+        sortDir,
+        page,
+        pageSize,
+      }),
+    enabled: !!restaurantId,
+    placeholderData: keepPreviousData,
   });
+  const list = (data?.items ?? []) as MenuItemRow[];
+  const total = data?.total ?? 0;
   const { data: languages = [] } = useQuery({
     queryKey: ["admin", "languages"],
     queryFn: fetchLanguagesAdmin,
@@ -120,8 +162,20 @@ export function MenuItemsPage() {
     | undefined;
 
   const selectedRows = useMemo(() => {
-    const raw = (list ?? []) as MenuItemRow[];
-    return raw.filter((r) => selectedIds.has(r.id));
+    return Array.from(selectedIds)
+      .map((id) => selectionById.get(id))
+      .filter((x): x is MenuItemRow => x != null);
+  }, [selectedIds, selectionById]);
+
+  useEffect(() => {
+    if (!list.length) return;
+    setSelectionById((prev) => {
+      const next = new Map(prev);
+      for (const it of list) {
+        if (selectedIds.has(it.id)) next.set(it.id, it);
+      }
+      return next;
+    });
   }, [list, selectedIds]);
 
   const bulkLocaleIntersection = useMemo(
@@ -130,114 +184,41 @@ export function MenuItemsPage() {
   );
 
   const canBulkTranslate = useMemo(() => {
-    if (selectedRows.length === 0 || languages.length === 0) return false;
+    if (selectedIds.size === 0 || languages.length === 0) return false;
+    if (selectedRows.length === 0) return true;
     return languages.some(
       (l) => !bulkLocaleIntersection.includes(normalizeLocaleCode(l.code)),
     );
-  }, [selectedRows.length, languages, bulkLocaleIntersection]);
+  }, [selectedIds.size, selectedRows, languages, bulkLocaleIntersection]);
 
-  const filteredAndSortedList = useMemo(() => {
-    const raw = (list ?? []) as MenuItemRow[];
-    let filtered = raw;
-    if (activeFilter === "active")
-      filtered = raw.filter((i) => i.isActive !== false);
-    else if (activeFilter === "inactive")
-      filtered = raw.filter((i) => i.isActive === false);
-    const getName = (item: MenuItemRow) =>
-      item.translations?.find((t) => t.locale === "ru")?.name ?? "";
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      filtered = filtered.filter((i) => getName(i).toLowerCase().includes(q));
-    }
-    if (menuTypeFilter) {
-      const categoryIdsOfType = new Set(
-        categoriesList
-          ?.filter((c) => c.menuTypeId === menuTypeFilter)
-          .map((c) => c.id) ?? [],
-      );
-      filtered = filtered.filter((i) => categoryIdsOfType.has(i.categoryId));
-    }
-    const getCategoryName = (categoryId: string) =>
-      categoriesList?.find((c) => c.id === categoryId)?.translations?.[0]
-        ?.name ?? "";
-    return [...filtered].sort((a, b) => {
-      let va: string | number;
-      let vb: string | number;
-      switch (sortBy) {
-        case "name":
-          va = getName(a);
-          vb = getName(b);
-          break;
-        case "category":
-          va = getCategoryName(a.categoryId);
-          vb = getCategoryName(b.categoryId);
-          break;
-        case "menuType": {
-          const getMenuTypeName = (categoryId: string) => {
-            const cat = categoriesList?.find((c) => c.id === categoryId);
-            const mt = cat?.menuTypeId
-              ? menuTypesList?.find((m) => m.id === cat.menuTypeId)
-              : undefined;
-            return (
-              mt?.translations?.find((t) => t.locale === "ru")?.name ??
-              mt?.code ??
-              ""
-            );
-          };
-          va = getMenuTypeName(a.categoryId);
-          vb = getMenuTypeName(b.categoryId);
-          break;
-        }
-        case "price":
-          va = Number(a.price);
-          vb = Number(b.price);
-          break;
-        case "weightOrVolume":
-          va = a.weightOrVolume ?? "";
-          vb = b.weightOrVolume ?? "";
-          break;
-        case "isActive":
-          va = a.isActive !== false ? 1 : 0;
-          vb = b.isActive !== false ? 1 : 0;
-          break;
-        default:
-          return 0;
-      }
-      const cmp =
-        typeof va === "string"
-          ? va.localeCompare(vb as string)
-          : (va as number) - (vb as number);
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-  }, [
-    list,
-    categoriesList,
-    menuTypesList,
-    menuTypeFilter,
-    activeFilter,
-    searchQuery,
-    sortBy,
-    sortDir,
-  ]);
-
-  const total = filteredAndSortedList.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(page, totalPages);
   const start = (currentPage - 1) * pageSize;
-  const paginatedList = filteredAndSortedList.slice(start, start + pageSize);
+  const paginatedList = list;
+
+  useEffect(() => {
+    const tp = Math.max(1, Math.ceil(total / pageSize));
+    if (total > 0 && page > tp) setPage(tp);
+  }, [total, page, pageSize]);
 
   const goToPage = (p: number) => setPage(Math.max(1, Math.min(p, totalPages)));
 
-  const toggleSelected = (id: string) => {
+  const toggleSelected = (id: string, row: MenuItemRow) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+    setSelectionById((prev) => {
+      const next = new Map(prev);
+      if (next.has(id)) next.delete(id);
+      else next.set(id, row);
+      return next;
+    });
   };
   const selectAllOnPage = () => {
-    const ids = paginatedList.map((i: { id: string }) => i.id);
+    const ids = paginatedList.map((i) => i.id);
     const allSelected =
       ids.length > 0 && ids.every((id: string) => selectedIds.has(id));
     setSelectedIds((prev) => {
@@ -246,8 +227,20 @@ export function MenuItemsPage() {
       else ids.forEach((id: string) => next.add(id));
       return next;
     });
+    setSelectionById((prev) => {
+      const next = new Map(prev);
+      if (allSelected) {
+        ids.forEach((id: string) => next.delete(id));
+      } else {
+        paginatedList.forEach((item) => next.set(item.id, item));
+      }
+      return next;
+    });
   };
-  const clearSelection = () => setSelectedIds(new Set());
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectionById(new Map());
+  };
 
   const onCategoryFilterChange = (value: string) => {
     setCategoryFilter(value);
@@ -268,7 +261,27 @@ export function MenuItemsPage() {
   };
 
   const createMu = useMutation({
-    mutationFn: createMenuItem,
+    mutationFn: async ({
+      body,
+      imageFile,
+      imageUrl,
+    }: {
+      body: unknown;
+      imageFile?: File | null;
+      imageUrl?: string;
+    }) => {
+      const urlTrim = imageUrl?.trim() ?? "";
+      if (!imageFile && urlTrim && !isValidHttpImageUrl(urlTrim)) {
+        throw new Error("Некорректная ссылка (нужен http:// или https://)");
+      }
+      const created = (await createMenuItem(body)) as { id: string };
+      if (imageFile && created?.id) {
+        await uploadMenuItemImage(created.id, imageFile);
+      } else if (urlTrim && created?.id) {
+        await updateMenuItem(created.id, { imagePath: urlTrim });
+      }
+      return created;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "menu-items"] });
       setModal(null);
@@ -276,6 +289,43 @@ export function MenuItemsPage() {
     },
     onError: (err: Error) =>
       toast.error(err.message || "Не удалось создать блюдо"),
+  });
+
+  const uploadItemImageMu = useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) =>
+      uploadMenuItemImage(id, file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "menu-items"] });
+      toast.success("Фото обновлено");
+    },
+    onError: (err: Error) =>
+      toast.error(err.message || "Не удалось загрузить фото"),
+  });
+
+  const removeItemImageMu = useMutation({
+    mutationFn: (id: string) => updateMenuItem(id, { imagePath: null }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "menu-items"] });
+      toast.success("Фото удалено");
+    },
+    onError: (err: Error) =>
+      toast.error(err.message || "Не удалось удалить фото"),
+  });
+
+  const saveItemImageUrlMu = useMutation({
+    mutationFn: ({
+      id,
+      imagePath,
+    }: {
+      id: string;
+      imagePath: string | null;
+    }) => updateMenuItem(id, { imagePath }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "menu-items"] });
+      toast.success("Ссылка на фото сохранена");
+    },
+    onError: (err: Error) =>
+      toast.error(err.message || "Не удалось сохранить ссылку"),
   });
 
   const updateMu = useMutation({
@@ -286,8 +336,7 @@ export function MenuItemsPage() {
       setEditing(null);
       toast.success("Изменения сохранены");
     },
-    onError: (err: Error) =>
-      toast.error(err.message || "Не удалось сохранить"),
+    onError: (err: Error) => toast.error(err.message || "Не удалось сохранить"),
   });
 
   const deleteMu = useMutation({
@@ -296,8 +345,7 @@ export function MenuItemsPage() {
       queryClient.invalidateQueries({ queryKey: ["admin", "menu-items"] });
       toast.success("Блюдо удалено");
     },
-    onError: (err: Error) =>
-      toast.error(err.message || "Не удалось удалить"),
+    onError: (err: Error) => toast.error(err.message || "Не удалось удалить"),
   });
 
   const translateMu = useMutation({
@@ -327,13 +375,8 @@ export function MenuItemsPage() {
   });
 
   const bulkUpdateCategoryMu = useMutation({
-    mutationFn: ({
-      ids,
-      categoryId,
-    }: {
-      ids: string[];
-      categoryId: string;
-    }) => bulkUpdateMenuItems({ ids, categoryId }),
+    mutationFn: ({ ids, categoryId }: { ids: string[]; categoryId: string }) =>
+      bulkUpdateMenuItems({ ids, categoryId }),
     onSuccess: (data: { count: number }) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "menu-items"] });
       clearSelection();
@@ -344,13 +387,8 @@ export function MenuItemsPage() {
       toast.error(err.message || "Не удалось обновить категорию"),
   });
   const bulkSetActiveMu = useMutation({
-    mutationFn: ({
-      ids,
-      isActive,
-    }: {
-      ids: string[];
-      isActive: boolean;
-    }) => bulkUpdateMenuItems({ ids, isActive }),
+    mutationFn: ({ ids, isActive }: { ids: string[]; isActive: boolean }) =>
+      bulkUpdateMenuItems({ ids, isActive }),
     onSuccess: (data: { count: number }, variables) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "menu-items"] });
       clearSelection();
@@ -398,9 +436,8 @@ export function MenuItemsPage() {
   });
 
   useEffect(() => {
-    if (!editing?.id || !list) return;
-    const arr = (list ?? []) as { id: string }[];
-    const found = arr.find((x) => x.id === (editing as { id: string }).id);
+    if (!editing?.id) return;
+    const found = list.find((x) => x.id === (editing as MenuItemRow).id);
     if (found) setEditing(found);
   }, [editing, list]);
 
@@ -427,7 +464,7 @@ export function MenuItemsPage() {
                 setSearchQuery(e.target.value);
                 setPage(1);
               }}
-              placeholder="Поиск по названию..."
+              placeholder="Поиск по названию или описанию..."
               className="input-dark w-56 pl-9"
             />
           </div>
@@ -455,8 +492,8 @@ export function MenuItemsPage() {
               onClick={() => setFilterOpen(false)}
               aria-hidden
             />
-            <div className="fixed top-0 right-0 h-screen w-[min(100%,28rem)] max-w-full flex flex-col bg-ayvan-panel border-l border-border shadow-2xl z-50">
-              <div className="flex items-center justify-between shrink-0 px-4 py-3 border-b border-border bg-ayvan-panel">
+            <div className="fixed top-0 right-0 h-screen w-[min(100%,28rem)] max-w-full flex flex-col bg-app-panel border-l border-border shadow-2xl z-50">
+              <div className="flex items-center justify-between shrink-0 px-4 py-3 border-b border-border bg-app-panel">
                 <h2 className="text-lg font-semibold text-stone-100 truncate pr-2">
                   Фильтры и сортировка
                 </h2>
@@ -477,7 +514,7 @@ export function MenuItemsPage() {
                   <div className="space-y-3">
                     <div>
                       <label className="block text-sm text-stone-400 mb-1">
-                        Поиск по названию
+                        Поиск по названию или описанию
                       </label>
                       <input
                         type="text"
@@ -611,7 +648,7 @@ export function MenuItemsPage() {
 
       <div className="card overflow-hidden flex flex-col">
         {selectedIds.size > 0 && (
-          <div className="shrink-0 flex flex-wrap items-center gap-3 px-4 py-3 border-b border-border bg-ayvan-panel/50">
+          <div className="shrink-0 flex flex-wrap items-center gap-3 px-4 py-3 border-b border-border bg-app-panel/50">
             <span className="text-sm text-stone-300">
               Выбрано: {selectedIds.size}
             </span>
@@ -651,9 +688,7 @@ export function MenuItemsPage() {
                   isActive: true,
                 })
               }
-              disabled={
-                bulkSetActiveMu.isPending || bulkTranslateMu.isPending
-              }
+              disabled={bulkSetActiveMu.isPending || bulkTranslateMu.isPending}
               className="btn-secondary text-sm py-1.5"
             >
               Сделать активными
@@ -666,9 +701,7 @@ export function MenuItemsPage() {
                   isActive: false,
                 })
               }
-              disabled={
-                bulkSetActiveMu.isPending || bulkTranslateMu.isPending
-              }
+              disabled={bulkSetActiveMu.isPending || bulkTranslateMu.isPending}
               className="btn-secondary text-sm py-1.5"
             >
               Сделать неактивными
@@ -695,7 +728,7 @@ export function MenuItemsPage() {
         )}
         <div className="overflow-auto overflow-x-auto max-h-[calc(100vh-16rem)] min-h-0">
           <table className="w-full min-w-[800px]">
-            <thead className="sticky top-0 z-10 bg-ayvan-panel shadow-[0_1px_0_0_rgba(0,0,0,0.1)]">
+            <thead className="sticky top-0 z-10 bg-app-panel shadow-[0_1px_0_0_rgba(0,0,0,0.1)]">
               <tr className="border-b border-border">
                 <th className="w-10 px-2 py-3 text-left">
                   <input
@@ -841,7 +874,7 @@ export function MenuItemsPage() {
                       key={item.id}
                       role="button"
                       tabIndex={0}
-                      className={`hover:bg-ayvan-panel/50 transition-colors cursor-pointer ${selectedIds.has(item.id) ? "bg-ayvan-accent/8" : ""}`}
+                      className={`hover:bg-app-panel/50 transition-colors cursor-pointer ${selectedIds.has(item.id) ? "bg-app-accent/8" : ""}`}
                       onClick={() => setEditing(item)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
@@ -858,7 +891,7 @@ export function MenuItemsPage() {
                         <input
                           type="checkbox"
                           checked={selectedIds.has(item.id)}
-                          onChange={() => toggleSelected(item.id)}
+                          onChange={() => toggleSelected(item.id, item)}
                           className="checkbox"
                         />
                       </td>
@@ -871,7 +904,7 @@ export function MenuItemsPage() {
                                   key={t.locale}
                                   className="flex items-baseline gap-2"
                                 >
-                                  <span className="shrink-0 rounded bg-ayvan-bg-dark border border-border px-1.5 py-0.5 text-xs font-medium text-fg-muted">
+                                  <span className="shrink-0 rounded bg-app-bg border border-border px-1.5 py-0.5 text-xs font-medium text-fg-muted">
                                     {t.locale}
                                   </span>
                                   <span
@@ -900,7 +933,7 @@ export function MenuItemsPage() {
                                   key={t.locale}
                                   className="flex gap-2 text-sm"
                                 >
-                                  <span className="shrink-0 rounded bg-ayvan-bg-dark border border-border px-1.5 py-0.5 text-xs font-medium text-fg-muted">
+                                  <span className="shrink-0 rounded bg-app-bg border border-border px-1.5 py-0.5 text-xs font-medium text-fg-muted">
                                     {t.locale}
                                   </span>
                                   <span
@@ -958,7 +991,7 @@ export function MenuItemsPage() {
                               e.stopPropagation();
                               setEditing(item);
                             }}
-                            className="btn-ghost text-ayvan-accent hover:bg-ayvan-accent/10"
+                            className="btn-ghost text-app-accent hover:bg-app-accent/10"
                             title="Изменить"
                           >
                             <Pencil className="w-4 h-4" />
@@ -969,8 +1002,7 @@ export function MenuItemsPage() {
                               setTranslateModalItem(item);
                             }}
                             disabled={
-                              translatingId != null ||
-                              bulkTranslateMu.isPending
+                              translatingId != null || bulkTranslateMu.isPending
                             }
                             className="btn-ghost text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
                             title={
@@ -1042,7 +1074,13 @@ export function MenuItemsPage() {
           categories={categoriesList}
           menuTypes={menuTypesList}
           onClose={() => setModal(null)}
-          onSubmit={(body) => createMu.mutate(body)}
+          onSubmit={(body, imageFile, imageUrl) =>
+            createMu.mutate({
+              body,
+              imageFile: imageFile ?? undefined,
+              imageUrl,
+            })
+          }
           isLoading={createMu.isPending}
         />
       )}
@@ -1062,6 +1100,25 @@ export function MenuItemsPage() {
               setTranslateModalItem(editing as MenuItemRow)
             }
             isTranslating={translateMu.isPending || bulkTranslateMu.isPending}
+            imagePath={(editing as MenuItemRow).imagePath ?? null}
+            onUploadImage={(file) =>
+              uploadItemImageMu.mutateAsync({
+                id: (editing as MenuItemRow).id,
+                file,
+              })
+            }
+            onRemoveImage={() =>
+              removeItemImageMu.mutateAsync((editing as MenuItemRow).id)
+            }
+            isUploadingImage={uploadItemImageMu.isPending}
+            isRemovingImage={removeItemImageMu.isPending}
+            onSaveImageUrl={(imagePath) =>
+              saveItemImageUrlMu.mutateAsync({
+                id: (editing as MenuItemRow).id,
+                imagePath,
+              })
+            }
+            isSavingImageUrl={saveItemImageUrlMu.isPending}
           />,
           document.body,
         )}
@@ -1241,9 +1298,18 @@ function CreateMenuItemModal({
   categories: CategoryOption[] | undefined;
   menuTypes: MenuTypeOption[] | undefined;
   onClose: () => void;
-  onSubmit: (body: unknown) => void;
+  onSubmit: (
+    body: unknown,
+    imageFile?: File | null,
+    imageUrl?: string,
+  ) => void;
   isLoading: boolean;
 }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState("");
+
   const [menuTypeId, setMenuTypeId] = useState(menuTypes?.[0]?.id ?? "");
   const categoriesOfType = menuTypeId
     ? (categories?.filter((c) => c.menuTypeId === menuTypeId) ?? [])
@@ -1275,6 +1341,33 @@ function CreateMenuItemModal({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
+
+  useEffect(() => {
+    return () => {
+      if (imagePreview) URL.revokeObjectURL(imagePreview);
+    };
+  }, [imagePreview]);
+
+  const onPickImage = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setImageUrl("");
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(f);
+    setImagePreview(URL.createObjectURL(f));
+    e.target.value = "";
+  };
+
+  const clearPickedImage = () => {
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(null);
+    setImagePreview(null);
+  };
+
+  const onImageUrlChange = (value: string) => {
+    setImageUrl(value);
+    if (value.trim()) clearPickedImage();
+  };
 
   return (
     <div
@@ -1352,6 +1445,79 @@ function CreateMenuItemModal({
             rows={2}
           />
         </div>
+        <div className="space-y-3">
+          <label className="block text-sm font-medium text-stone-400">
+            Фото
+          </label>
+          <p className="text-xs text-stone-500">
+            Локальный файл загружается на сервер. Если указана ссылка — в меню
+            сохранится URL (приоритет у файла, если выбраны оба).
+          </p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/jpg,image/webp"
+            onChange={onPickImage}
+            className="hidden"
+          />
+          <div className="flex flex-wrap items-start gap-3">
+            {imagePreview ? (
+              <div className="relative w-32 h-32 rounded-lg overflow-hidden border border-border bg-stone-900/50 shrink-0">
+                <img
+                  src={imagePreview}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            ) : imageUrl.trim() && isValidHttpImageUrl(imageUrl.trim()) ? (
+              <div className="relative w-32 h-32 rounded-lg overflow-hidden border border-border bg-stone-900/50 shrink-0">
+                <img
+                  src={imageUrl.trim()}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            ) : (
+              <div className="w-32 h-32 rounded-lg border border-dashed border-border flex items-center justify-center text-stone-500 text-xs text-center px-2">
+                Нет фото
+              </div>
+            )}
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-app-accent/20 text-app-accent border border-app-accent/40 hover:bg-app-accent/30 disabled:opacity-50 text-sm font-medium"
+              >
+                <ImagePlus className="w-4 h-4" />
+                {imagePreview ? "Заменить файл" : "Выбрать файл"}
+              </button>
+              {imagePreview ? (
+                <button
+                  type="button"
+                  onClick={clearPickedImage}
+                  disabled={isLoading}
+                  className="btn-secondary text-sm py-2"
+                >
+                  Убрать файл
+                </button>
+              ) : null}
+            </div>
+          </div>
+          <div className="space-y-1.5 pt-1 border-t border-border/80">
+            <label className="block text-xs font-medium text-stone-500">
+              Или ссылка на изображение (https://…)
+            </label>
+            <input
+              type="url"
+              value={imageUrl}
+              onChange={(e) => onImageUrlChange(e.target.value)}
+              placeholder="https://example.com/photo.jpg"
+              className="input-dark text-sm"
+              disabled={isLoading}
+            />
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <label className="block text-sm font-medium text-stone-400">
@@ -1389,21 +1555,30 @@ function CreateMenuItemModal({
         <div className="flex gap-2 justify-end pt-2">
           <button
             type="button"
-            onClick={() =>
-              onSubmit({
-                categoryId: effectiveCategoryId,
-                translations: [
-                  {
-                    locale: "ru",
-                    name: nameRu,
-                    description: descriptionRu || undefined,
-                  },
-                ],
-                price: Number(price) || 0,
-                weightOrVolume: weightOrVolume || undefined,
-                isActive,
-              })
-            }
+            onClick={() => {
+              const urlTrim = imageUrl.trim();
+              if (!imageFile && urlTrim && !isValidHttpImageUrl(urlTrim)) {
+                toast.error("Некорректная ссылка (нужен http:// или https://)");
+                return;
+              }
+              onSubmit(
+                {
+                  categoryId: effectiveCategoryId,
+                  translations: [
+                    {
+                      locale: "ru",
+                      name: nameRu,
+                      description: descriptionRu || undefined,
+                    },
+                  ],
+                  price: Number(price) || 0,
+                  weightOrVolume: weightOrVolume || undefined,
+                  isActive,
+                },
+                imageFile,
+                urlTrim || undefined,
+              );
+            }}
             disabled={isLoading}
             className="btn-primary"
           >
@@ -1426,6 +1601,13 @@ function EditMenuItemModal({
   isLoading,
   onOpenTranslate,
   isTranslating,
+  imagePath,
+  onUploadImage,
+  onRemoveImage,
+  isUploadingImage,
+  isRemovingImage,
+  onSaveImageUrl,
+  isSavingImageUrl,
 }: {
   initial: Record<string, unknown>;
   categories: CategoryOption[] | undefined;
@@ -1435,7 +1617,34 @@ function EditMenuItemModal({
   isLoading: boolean;
   onOpenTranslate?: () => void;
   isTranslating?: boolean;
+  imagePath?: string | null;
+  onUploadImage?: (file: File) => Promise<void>;
+  onRemoveImage?: () => Promise<void>;
+  isUploadingImage?: boolean;
+  isRemovingImage?: boolean;
+  onSaveImageUrl?: (imagePath: string | null) => Promise<void>;
+  isSavingImageUrl?: boolean;
 }) {
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
+  const photoUrl = publicUploadUrl(imagePath ?? null);
+  const [linkInput, setLinkInput] = useState(() =>
+    imagePath && isValidHttpImageUrl(imagePath) ? imagePath.trim() : "",
+  );
+
+  useEffect(() => {
+    if (!imagePath) {
+      setLinkInput("");
+      return;
+    }
+    if (isValidHttpImageUrl(imagePath)) {
+      setLinkInput(imagePath.trim());
+    } else {
+      setLinkInput("");
+    }
+  }, [imagePath]);
+
+  const hasLocalUpload =
+    !!imagePath && !isValidHttpImageUrl(imagePath);
   const initialTranslations =
     (initial.translations as {
       locale: string;
@@ -1526,7 +1735,7 @@ function EditMenuItemModal({
         aria-hidden
       />
       <div
-        className="fixed top-0 right-0 z-50 h-full w-[50vw] min-w-[320px] max-w-full flex flex-col border-l border-border bg-ayvan-panel shadow-2xl offcanvas-slide-in"
+        className="fixed top-0 right-0 z-50 h-full w-[50vw] min-w-[320px] max-w-full flex flex-col border-l border-border bg-app-panel shadow-2xl offcanvas-slide-in"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -1585,6 +1794,122 @@ function EditMenuItemModal({
             </div>
           </div>
 
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-stone-400">
+              Фото блюда
+            </label>
+            <input
+              ref={imageFileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/webp"
+              className="hidden"
+              onChange={async (e: ChangeEvent<HTMLInputElement>) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (!f || !onUploadImage) return;
+                await onUploadImage(f);
+              }}
+            />
+            <div className="flex flex-wrap items-start gap-3">
+              {photoUrl ? (
+                <div className="relative w-36 h-28 rounded-lg overflow-hidden border border-border bg-stone-900/50 shrink-0">
+                  <img
+                    src={photoUrl}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ) : (
+                <div className="w-36 h-28 rounded-lg border border-dashed border-border flex items-center justify-center text-stone-500 text-xs text-center px-2">
+                  Нет фото
+                </div>
+              )}
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => imageFileInputRef.current?.click()}
+                  disabled={
+                    isUploadingImage || isRemovingImage || !onUploadImage
+                  }
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-app-accent/20 text-app-accent border border-app-accent/40 hover:bg-app-accent/30 disabled:opacity-50 text-sm font-medium"
+                >
+                  {isUploadingImage ? (
+                    <span className="inline-block w-4 h-4 border-2 border-app-accent border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <ImagePlus className="w-4 h-4" />
+                  )}
+                  {photoUrl ? "Заменить" : "Загрузить"}
+                </button>
+                {photoUrl && onRemoveImage ? (
+                  <button
+                    type="button"
+                    onClick={() => void onRemoveImage()}
+                    disabled={isUploadingImage || isRemovingImage}
+                    className="btn-secondary text-sm py-2"
+                  >
+                    {isRemovingImage ? "Удаление…" : "Удалить фото"}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {hasLocalUpload ? (
+              <p className="text-xs text-stone-500">
+                Сейчас файл на сервере. Чтобы использовать ссылку, вставьте URL
+                ниже и нажмите «Сохранить ссылку» — она заменит файл.
+              </p>
+            ) : null}
+            <div className="space-y-2 pt-2 border-t border-border/80">
+              <label className="block text-sm font-medium text-stone-400">
+                Или ссылка на изображение
+              </label>
+              <p className="text-xs text-stone-500">
+                Полный URL (https://…). Пустое поле и «Сохранить ссылку» сбросит
+                только внешнюю ссылку.
+              </p>
+              <input
+                type="url"
+                value={linkInput}
+                onChange={(e) => setLinkInput(e.target.value)}
+                placeholder="https://example.com/image.jpg"
+                className="input-dark"
+                disabled={
+                  isSavingImageUrl ||
+                  isUploadingImage ||
+                  isRemovingImage
+                }
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  const t = linkInput.trim();
+                  if (t && !isValidHttpImageUrl(t)) {
+                    toast.error(
+                      "Некорректная ссылка (нужен http:// или https://)",
+                    );
+                    return;
+                  }
+                  if (!onSaveImageUrl) return;
+                  if (!t) {
+                    if (imagePath && isValidHttpImageUrl(imagePath)) {
+                      await onSaveImageUrl(null);
+                    }
+                    return;
+                  }
+                  await onSaveImageUrl(t);
+                }}
+                disabled={
+                  isSavingImageUrl ||
+                  isUploadingImage ||
+                  isRemovingImage ||
+                  !onSaveImageUrl
+                }
+                className="btn-secondary text-sm"
+              >
+                {isSavingImageUrl ? "Сохранение…" : "Сохранить ссылку"}
+              </button>
+            </div>
+          </div>
+
           <div className="space-y-3">
             <h3 className="text-sm font-medium text-stone-400 uppercase tracking-wider">
               Переводы
@@ -1597,8 +1922,8 @@ function EditMenuItemModal({
                   onClick={() => setActiveLocaleIndex(index)}
                   className={`px-3 py-2.5 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px ${
                     activeLocaleIndex === index
-                      ? "border-ayvan-accent text-ayvan-accent bg-ayvan-panel/80"
-                      : "border-transparent text-stone-400 hover:text-stone-300 hover:bg-ayvan-panel/50"
+                      ? "border-app-accent text-app-accent bg-app-panel/80"
+                      : "border-transparent text-stone-400 hover:text-stone-300 hover:bg-app-panel/50"
                   }`}
                 >
                   {t.locale.toUpperCase()}
@@ -1628,7 +1953,7 @@ function EditMenuItemModal({
                 const t = translations[activeLocaleIndex];
                 const index = activeLocaleIndex;
                 return (
-                  <div className="rounded-lg border border-border bg-ayvan-panel/50 p-4 space-y-4">
+                  <div className="rounded-lg border border-border bg-app-panel/50 p-4 space-y-4">
                     <div className="space-y-2">
                       <label className="block text-sm font-medium text-stone-400">
                         Название

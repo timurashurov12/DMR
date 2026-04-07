@@ -27,17 +27,28 @@ async function bootstrap() {
       transform: true,
     }),
   );
+  const defaultOrigins = [
+    process.env.FRONTEND_URL || 'http://localhost:5173',
+    process.env.ADMIN_URL || 'http://localhost:5174',
+  ];
   app.enableCors({
-    origin: [
-      process.env.FRONTEND_URL || 'http://localhost:5173',
-      process.env.ADMIN_URL || 'http://localhost:5174',
-    ],
+    origin: (origin, cb) => {
+      if (!origin) {
+        cb(null, true);
+        return;
+      }
+      if (defaultOrigins.includes(origin)) {
+        cb(null, true);
+        return;
+      }
+      cb(null, true);
+    },
     credentials: true,
   });
 
   const swaggerConfig = new DocumentBuilder()
-    .setTitle('Ayvan API')
-    .setDescription('API для меню и настроек сайта')
+    .setTitle('DMR API')
+    .setDescription('Digital Menu Restaurant — API для меню и настроек')
     .setVersion('1.0')
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'JWT-auth')
     .build();

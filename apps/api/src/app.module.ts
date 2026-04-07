@@ -3,6 +3,7 @@ import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
+import { RestaurantScopeModule } from './common/scope/restaurant-scope.module';
 import { AuthModule } from './auth/auth.module';
 import { MenuTypesModule } from './menu-types/menu-types.module';
 import { CategoriesModule } from './categories/categories.module';
@@ -12,8 +13,11 @@ import { PublicMenuModule } from './public-menu/public-menu.module';
 import { TranslateModule } from './translate/translate.module';
 import { SiteSettingsModule } from './site-settings/site-settings.module';
 import { UsersModule } from './users/users.module';
+import { RestaurantsModule } from './restaurants/restaurants.module';
+import { MenusModule } from './menus/menus.module';
+import { BookingsModule } from './bookings/bookings.module';
+import { TelegramModule } from './telegram/telegram.module';
 
-// Корневой .env: при cwd=apps/api — cwd/../../.env, при cwd=корень — cwd/.env
 const cwd = process.cwd();
 const envCandidates = [
   join(cwd, '..', '..', '.env'),
@@ -29,8 +33,11 @@ const envFilePath = envCandidates.find((p) => existsSync(p));
       envFilePath,
     }),
     PrismaModule,
+    RestaurantScopeModule,
     AuthModule,
     UsersModule,
+    RestaurantsModule,
+    MenusModule,
     LanguagesModule,
     MenuTypesModule,
     CategoriesModule,
@@ -38,6 +45,8 @@ const envFilePath = envCandidates.find((p) => existsSync(p));
     PublicMenuModule,
     TranslateModule,
     SiteSettingsModule,
+    BookingsModule,
+    TelegramModule,
   ],
 })
 export class AppModule {}

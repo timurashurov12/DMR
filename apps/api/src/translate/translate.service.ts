@@ -106,10 +106,10 @@ ${text}`;
     }
   }
 
-  async translateMenuType(menuTypeId: string, targetLocales?: string[]) {
-    const menuType = await this.prisma.menuType.findUnique({
-      where: { id: menuTypeId },
-      include: { translations: true },
+  async translateMenuType(menuTypeId: string, restaurantId: string, targetLocales?: string[]) {
+    const menuType = await this.prisma.menuType.findFirst({
+      where: { id: menuTypeId, menu: { restaurantId } },
+      include: { translations: true, menu: true },
     });
     if (!menuType) return { translated: 0, locales: [] };
 
@@ -132,14 +132,14 @@ ${text}`;
       });
       translatedLocales.push(lang.code);
     }
-    invalidateMenuCache();
+    invalidateMenuCache(menuTypeId, restaurantId);
     return { translated: translatedLocales.length, locales: translatedLocales };
   }
 
-  async translateCategory(categoryId: string, targetLocales?: string[]) {
-    const category = await this.prisma.category.findUnique({
-      where: { id: categoryId },
-      include: { translations: true },
+  async translateCategory(categoryId: string, restaurantId: string, targetLocales?: string[]) {
+    const category = await this.prisma.category.findFirst({
+      where: { id: categoryId, menuType: { menu: { restaurantId } } },
+      include: { translations: true, menuType: true },
     });
     if (!category) return { translated: 0, locales: [] };
 
@@ -164,13 +164,13 @@ ${text}`;
       });
       translatedLocales.push(lang.code);
     }
-    invalidateMenuCache();
+    invalidateMenuCache(category.menuTypeId, restaurantId);
     return { translated: translatedLocales.length, locales: translatedLocales };
   }
 
-  async translateMenuItem(menuItemId: string, targetLocales?: string[]) {
-    const item = await this.prisma.menuItem.findUnique({
-      where: { id: menuItemId },
+  async translateMenuItem(menuItemId: string, restaurantId: string, targetLocales?: string[]) {
+    const item = await this.prisma.menuItem.findFirst({
+      where: { id: menuItemId, category: { menuType: { menu: { restaurantId } } } },
       include: { translations: true, category: { select: { menuTypeId: true } } },
     });
     if (!item) return { translated: 0, locales: [] };
@@ -196,16 +196,16 @@ ${text}`;
       });
       translatedLocales.push(lang.code);
     }
-    invalidateMenuCache(item.category.menuTypeId);
+    invalidateMenuCache(item.category.menuTypeId, restaurantId);
     return { translated: translatedLocales.length, locales: translatedLocales };
   }
 
-  async bulkTranslateMenuTypes(ids: string[], targetLocales?: string[]) {
+  async bulkTranslateMenuTypes(ids: string[], restaurantId: string, targetLocales?: string[]) {
     const errors: { message: string }[] = [];
     let totalNewLocales = 0;
     for (const id of ids) {
       try {
-        const r = await this.translateMenuType(id, targetLocales);
+        const r = await this.translateMenuType(id, restaurantId, targetLocales);
         totalNewLocales += r.translated;
       } catch (e: unknown) {
         errors.push({
@@ -216,12 +216,12 @@ ${text}`;
     return { totalNewLocales, errors };
   }
 
-  async bulkTranslateCategories(ids: string[], targetLocales?: string[]) {
+  async bulkTranslateCategories(ids: string[], restaurantId: string, targetLocales?: string[]) {
     const errors: { message: string }[] = [];
     let totalNewLocales = 0;
     for (const id of ids) {
       try {
-        const r = await this.translateCategory(id, targetLocales);
+        const r = await this.translateCategory(id, restaurantId, targetLocales);
         totalNewLocales += r.translated;
       } catch (e: unknown) {
         errors.push({
@@ -232,12 +232,12 @@ ${text}`;
     return { totalNewLocales, errors };
   }
 
-  async bulkTranslateMenuItems(ids: string[], targetLocales?: string[]) {
+  async bulkTranslateMenuItems(ids: string[], restaurantId: string, targetLocales?: string[]) {
     const errors: { message: string }[] = [];
     let totalNewLocales = 0;
     for (const id of ids) {
       try {
-        const r = await this.translateMenuItem(id, targetLocales);
+        const r = await this.translateMenuItem(id, restaurantId, targetLocales);
         totalNewLocales += r.translated;
       } catch (e: unknown) {
         errors.push({

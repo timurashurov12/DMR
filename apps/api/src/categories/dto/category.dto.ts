@@ -38,6 +38,9 @@ export class UpdateCategoryDto {
   @IsBoolean()
   isActive?: boolean;
   @IsOptional()
+  @IsString()
+  imagePath?: string | null;
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => TranslationDto)

@@ -1,13 +1,25 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
+export const RESTAURANT_STORAGE_KEY = 'restaurant-admin-restaurant-id';
+
 function getToken(): string | null {
-  return localStorage.getItem('ayvan-admin-token');
+  return localStorage.getItem('restaurant-admin-token');
+}
+
+export function getSelectedRestaurantId(): string | null {
+  return localStorage.getItem(RESTAURANT_STORAGE_KEY);
+}
+
+export function setSelectedRestaurantId(id: string) {
+  localStorage.setItem(RESTAURANT_STORAGE_KEY, id);
 }
 
 function headers(includeAuth = true): HeadersInit {
   const h: HeadersInit = { 'Content-Type': 'application/json' };
   const token = getToken();
   if (includeAuth && token) (h as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+  const rid = localStorage.getItem(RESTAURANT_STORAGE_KEY);
+  if (includeAuth && token && rid) (h as Record<string, string>)['X-Restaurant-Id'] = rid;
   return h;
 }
 
@@ -25,9 +37,52 @@ export async function login(email: string, password: string) {
   return data.access_token;
 }
 
+export async function fetchRestaurants() {
+  const res = await fetch(`${API_BASE}/admin/restaurants`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to fetch restaurants');
+  return res.json() as Promise<{ id: string; name: string; slug: string | null; role: string }[]>;
+}
+
+export type MenuDto = { id: string; name: string; sortOrder: number; isActive: boolean };
+
+export async function fetchMenusAdmin() {
+  const res = await fetch(`${API_BASE}/admin/menus`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to fetch menus');
+  return res.json() as Promise<MenuDto[]>;
+}
+
+export async function createMenu(body: { name: string; sortOrder?: number; isActive?: boolean }) {
+  const res = await fetch(`${API_BASE}/admin/menus`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function updateMenu(id: string, body: { name?: string; sortOrder?: number; isActive?: boolean }) {
+  const res = await fetch(`${API_BASE}/admin/menus/${id}`, {
+    method: 'PATCH',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function deleteMenu(id: string) {
+  const res = await fetch(`${API_BASE}/admin/menus/${id}`, {
+    method: 'DELETE',
+    headers: headers(),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
 // Menu types
-export async function fetchMenuTypesAdmin() {
-  const res = await fetch(`${API_BASE}/admin/menu-types`, { headers: headers() });
+export async function fetchMenuTypesAdmin(menuId?: string) {
+  const q = menuId ? `?menuId=${encodeURIComponent(menuId)}` : '';
+  const res = await fetch(`${API_BASE}/admin/menu-types${q}`, { headers: headers() });
   if (!res.ok) throw new Error('Failed to fetch');
   return res.json();
 }
@@ -49,6 +104,27 @@ export async function updateMenuType(id: string, body: unknown) {
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function uploadMenuTypeImage(menuTypeId: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const token = getToken();
+  const rid = localStorage.getItem(RESTAURANT_STORAGE_KEY);
+  const rh: Record<string, string> = {};
+  if (token) rh['Authorization'] = `Bearer ${token}`;
+  if (rid) rh['X-Restaurant-Id'] = rid;
+  const res = await fetch(
+    `${API_BASE}/admin/menu-types/${encodeURIComponent(menuTypeId)}/image`,
+    { method: 'POST', headers: rh, body: formData },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(
+      (err as { message?: string }).message || 'Не удалось загрузить изображение',
+    );
+  }
   return res.json();
 }
 
@@ -150,6 +226,27 @@ export async function updateCategory(id: string, body: unknown) {
   return res.json();
 }
 
+export async function uploadCategoryImage(categoryId: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const token = getToken();
+  const rid = localStorage.getItem(RESTAURANT_STORAGE_KEY);
+  const rh: Record<string, string> = {};
+  if (token) rh['Authorization'] = `Bearer ${token}`;
+  if (rid) rh['X-Restaurant-Id'] = rid;
+  const res = await fetch(
+    `${API_BASE}/admin/categories/${encodeURIComponent(categoryId)}/image`,
+    { method: 'POST', headers: rh, body: formData },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(
+      (err as { message?: string }).message || 'Не удалось загрузить изображение',
+    );
+  }
+  return res.json();
+}
+
 export async function deleteCategory(id: string) {
   const res = await fetch(`${API_BASE}/admin/categories/${id}`, {
     method: 'DELETE',
@@ -208,14 +305,42 @@ export async function bulkTranslateCategories(body: { ids: string[]; targetLocal
   return res.json() as Promise<BulkTranslateResult>;
 }
 
-// Menu items
-export async function fetchMenuItemsAdmin(categoryId?: string) {
-  const url = categoryId
-    ? `${API_BASE}/admin/menu-items?categoryId=${encodeURIComponent(categoryId)}`
+// Menu items (пагинация, фильтры и сортировка на сервере)
+export type MenuItemsListParams = {
+  categoryId?: string;
+  menuTypeId?: string;
+  active?: 'active' | 'inactive';
+  search?: string;
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
+};
+
+export type MenuItemsListResponse = {
+  items: unknown[];
+  total: number;
+};
+
+export async function fetchMenuItemsAdmin(
+  params: MenuItemsListParams = {},
+): Promise<MenuItemsListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params.categoryId) searchParams.set('categoryId', params.categoryId);
+  if (params.menuTypeId) searchParams.set('menuTypeId', params.menuTypeId);
+  if (params.active) searchParams.set('active', params.active);
+  if (params.search?.trim()) searchParams.set('search', params.search.trim());
+  if (params.sortBy) searchParams.set('sortBy', params.sortBy);
+  if (params.sortDir) searchParams.set('sortDir', params.sortDir);
+  if (params.page != null) searchParams.set('page', String(params.page));
+  if (params.pageSize != null) searchParams.set('pageSize', String(params.pageSize));
+  const qs = searchParams.toString();
+  const url = qs
+    ? `${API_BASE}/admin/menu-items?${qs}`
     : `${API_BASE}/admin/menu-items`;
   const res = await fetch(url, { headers: headers() });
   if (!res.ok) throw new Error('Failed to fetch');
-  return res.json();
+  return res.json() as Promise<MenuItemsListResponse>;
 }
 
 export async function createMenuItem(body: unknown) {
@@ -235,6 +360,31 @@ export async function updateMenuItem(id: string, body: unknown) {
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function uploadMenuItemImage(menuItemId: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const token = getToken();
+  const rid = localStorage.getItem(RESTAURANT_STORAGE_KEY);
+  const rh: Record<string, string> = {};
+  if (token) rh['Authorization'] = `Bearer ${token}`;
+  if (rid) rh['X-Restaurant-Id'] = rid;
+  const res = await fetch(
+    `${API_BASE}/admin/menu-items/${encodeURIComponent(menuItemId)}/image`,
+    {
+      method: 'POST',
+      headers: rh,
+      body: formData,
+    },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(
+      (err as { message?: string }).message || 'Не удалось загрузить изображение',
+    );
+  }
   return res.json();
 }
 
@@ -356,10 +506,18 @@ export type SiteSettingsDto = {
   footerText: string | null;
   siteName: string | null;
   contactText: string | null;
+  ownerTelegramChatId?: string | null;
+  staffTelegramChatId?: string | null;
 };
 
 export async function fetchSiteSettings() {
   const res = await fetch(`${API_BASE}/site-settings`);
+  if (!res.ok) throw new Error('Failed to fetch site settings');
+  return res.json() as Promise<SiteSettingsDto>;
+}
+
+export async function fetchSiteSettingsAdmin() {
+  const res = await fetch(`${API_BASE}/admin/site-settings`, { headers: headers() });
   if (!res.ok) throw new Error('Failed to fetch site settings');
   return res.json() as Promise<SiteSettingsDto>;
 }
@@ -369,6 +527,8 @@ export async function updateSiteSettings(body: {
   footerText?: string | null;
   siteName?: string | null;
   contactText?: string | null;
+  ownerTelegramChatId?: string | null;
+  staffTelegramChatId?: string | null;
 }) {
   const res = await fetch(`${API_BASE}/site-settings`, {
     method: 'PATCH',
@@ -383,9 +543,13 @@ export async function uploadLogo(file: File) {
   const formData = new FormData();
   formData.append('file', file);
   const token = getToken();
+  const rid = localStorage.getItem(RESTAURANT_STORAGE_KEY);
+  const rh: Record<string, string> = {};
+  if (token) rh['Authorization'] = `Bearer ${token}`;
+  if (rid) rh['X-Restaurant-Id'] = rid;
   const res = await fetch(`${API_BASE}/site-settings/logo`, {
     method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: rh,
     body: formData,
   });
   if (!res.ok) {
@@ -437,4 +601,39 @@ export async function deleteUserAdmin(id: string) {
     const err = await res.json().catch(() => ({}));
     throw new Error((err as { message?: string }).message || 'Не удалось удалить');
   }
+}
+
+export type BookingAdminRow = {
+  id: string;
+  orderNumber: string;
+  guestName: string;
+  phone: string;
+  email: string | null;
+  scheduledAt: string | null;
+  partySize: number;
+  comment: string | null;
+  status: 'PENDING' | 'CONFIRMED' | 'CANCELLED';
+  receiptText: string | null;
+  /** Saved order lines when guest added positions (shape: `{ lines: { name, quantity, unitPrice }[] }`) */
+  itemsJson: unknown | null;
+  createdAt: string;
+};
+
+export async function fetchBookingsAdmin() {
+  const res = await fetch(`${API_BASE}/admin/bookings`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to fetch bookings');
+  return res.json() as Promise<BookingAdminRow[]>;
+}
+
+export async function updateBookingStatusAdmin(
+  id: string,
+  status: BookingAdminRow['status'],
+) {
+  const res = await fetch(`${API_BASE}/admin/bookings/${encodeURIComponent(id)}/status`, {
+    method: 'PATCH',
+    headers: headers(),
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
 }

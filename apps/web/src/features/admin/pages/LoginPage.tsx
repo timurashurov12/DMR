@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/features/admin/context/AuthContext';
 import { fetchSiteSettings } from '@/features/admin/lib/api';
 import { LogIn } from 'lucide-react';
+import { BRAND_NAME, BRAND_SHORT, BRAND_TAGLINE } from '@/shared/lib/brand';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -36,7 +37,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-ayvan-bg-dark p-4">
+    <div className="min-h-screen flex items-center justify-center bg-app-bg p-4">
       {/* Точки на фоне */}
       <div
         className="fixed inset-0 pointer-events-none"
@@ -49,10 +50,10 @@ export function LoginPage() {
 
       <div className="relative w-full max-w-88 animate-in">
         {/* Карточка: золотая полоса сверху + контент */}
-        <div className="rounded-2xl overflow-hidden border border-border bg-ayvan-panel shadow-card ring-1 ring-black/20">
+        <div className="rounded-2xl overflow-hidden border border-border bg-app-panel shadow-card ring-1 ring-black/20">
           {/* Полоса-акцент с лёгким градиентом */}
           <div
-            className="h-2 bg-linear-to-r from-ayvan-accent/90 via-ayvan-accent to-ayvan-accent/90"
+            className="h-2 bg-linear-to-r from-app-accent/90 via-app-accent to-app-accent/90"
             aria-hidden
           />
 
@@ -67,14 +68,19 @@ export function LoginPage() {
                     className="max-h-14 w-auto max-w-[200px] object-contain object-center"
                   />
                 ) : (
-                  <span className="text-2xl font-semibold text-ayvan-accent tracking-tight">
-                    Ayvan
-                  </span>
+                  <div className="text-center max-w-[280px]">
+                    <span className="block text-2xl font-semibold text-app-accent tracking-tight">
+                      {BRAND_SHORT}
+                    </span>
+                    <span className="mt-1 block text-sm font-medium text-stone-400 leading-snug">
+                      {BRAND_TAGLINE}
+                    </span>
+                  </div>
                 )}
               </div>
             </div>
             <p className="text-center text-fg-muted text-sm font-medium mb-6">
-              Вход в админ-панель
+              Вход в админ-панель · {BRAND_NAME}
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -115,7 +121,7 @@ export function LoginPage() {
                 className="btn-primary w-full py-3 mt-5 flex items-center justify-center gap-2 rounded-xl"
               >
                 {loading ? (
-                  <span className="inline-block w-5 h-5 border-2 border-ayvan-bg-dark/30 border-t-ayvan-bg-dark rounded-full animate-spin" />
+                  <span className="inline-block w-5 h-5 border-2 border-app-bg/30 border-t-app-bg rounded-full animate-spin" />
                 ) : (
                   <LogIn className="w-5 h-5" strokeWidth={2} />
                 )}

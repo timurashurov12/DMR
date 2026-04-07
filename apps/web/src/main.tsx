@@ -25,7 +25,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           toastOptions={{
             classNames: {
               toast:
-                "border-border bg-ayvan-panel text-stone-100 shadow-lg group",
+                "border-border bg-app-panel text-stone-100 shadow-lg group",
             },
           }}
         />

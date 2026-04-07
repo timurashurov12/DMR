@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -7,6 +7,7 @@ import {
   fetchLanguagesAdmin,
   createCategory,
   updateCategory,
+  uploadCategoryImage,
   deleteCategory,
   bulkDeleteCategories,
   bulkTranslateCategories,
@@ -14,12 +15,15 @@ import {
   getTranslateResultMessage,
   type TranslateResult,
 } from "@/features/admin/lib/api";
+import { useRestaurant } from "@/features/admin/context/RestaurantContext";
 import {
   localeIntersection,
   normalizeLocaleCode,
 } from "@/features/admin/lib/locale-intersection";
 import { toastBulkTranslateResult } from "@/features/admin/lib/translate-toasts";
 import { toast } from "sonner";
+import { publicUploadUrl } from "@/shared/lib/api";
+import { isValidHttpImageUrl } from "@/features/admin/lib/validate-image-url";
 import { TranslateModal } from "@/features/admin/components/TranslateModal";
 import { TablePagination } from "@/features/admin/components/TablePagination";
 import {
@@ -29,6 +33,7 @@ import {
   Trash2,
   SlidersHorizontal,
   X,
+  ImagePlus,
 } from "lucide-react";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
@@ -37,6 +42,7 @@ const DEFAULT_PAGE_SIZE = 10;
 type CategoryRow = {
   id: string;
   menuTypeId: string;
+  imagePath?: string | null;
   translations: { locale: string; name: string }[];
 };
 type MenuTypeOption = {
@@ -47,6 +53,7 @@ type MenuTypeOption = {
 
 export function CategoriesPage() {
   const queryClient = useQueryClient();
+  const { restaurantId } = useRestaurant();
   const [searchQuery, setSearchQuery] = useState("");
   const [menuTypeFilter, setMenuTypeFilter] = useState("");
   const [sortBy, setSortBy] = useState<"menuType" | "name">("name");
@@ -63,12 +70,14 @@ export function CategoriesPage() {
   const [bulkTranslateOpen, setBulkTranslateOpen] = useState(false);
 
   const { data: menuTypes } = useQuery({
-    queryKey: ["admin", "menu-types"],
-    queryFn: fetchMenuTypesAdmin,
+    queryKey: ["admin", "menu-types", "all", restaurantId],
+    queryFn: () => fetchMenuTypesAdmin(),
+    enabled: !!restaurantId,
   });
   const { data: list, isLoading } = useQuery({
-    queryKey: ["admin", "categories", menuTypeFilter],
+    queryKey: ["admin", "categories", restaurantId, menuTypeFilter],
     queryFn: () => fetchCategoriesAdmin(menuTypeFilter || undefined),
+    enabled: !!restaurantId,
   });
   const { data: languages = [] } = useQuery({
     queryKey: ["admin", "languages"],
@@ -139,7 +148,8 @@ export function CategoriesPage() {
   };
   const selectAllOnPage = () => {
     const ids = paginatedList.map((i) => i.id);
-    const allSelected = ids.length > 0 && ids.every((id) => selectedIds.has(id));
+    const allSelected =
+      ids.length > 0 && ids.every((id) => selectedIds.has(id));
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (allSelected) ids.forEach((id) => next.delete(id));
@@ -162,7 +172,27 @@ export function CategoriesPage() {
   };
 
   const createMu = useMutation({
-    mutationFn: createCategory,
+    mutationFn: async ({
+      body,
+      imageFile,
+      imageUrl,
+    }: {
+      body: unknown;
+      imageFile?: File | null;
+      imageUrl?: string;
+    }) => {
+      const urlTrim = imageUrl?.trim() ?? "";
+      if (!imageFile && urlTrim && !isValidHttpImageUrl(urlTrim)) {
+        throw new Error("Некорректная ссылка (нужен http:// или https://)");
+      }
+      const created = (await createCategory(body)) as { id: string };
+      if (imageFile && created?.id) {
+        await uploadCategoryImage(created.id, imageFile);
+      } else if (urlTrim && created?.id) {
+        await updateCategory(created.id, { imagePath: urlTrim });
+      }
+      return created;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "categories"] });
       setModal(null);
@@ -171,6 +201,39 @@ export function CategoriesPage() {
     onError: (err: Error) =>
       toast.error(err.message || "Не удалось создать категорию"),
   });
+
+  const uploadCategoryImageMu = useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) =>
+      uploadCategoryImage(id, file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "categories"] });
+      toast.success("Изображение обновлено");
+    },
+    onError: (err: Error) =>
+      toast.error(err.message || "Не удалось загрузить изображение"),
+  });
+
+  const removeCategoryImageMu = useMutation({
+    mutationFn: (id: string) => updateCategory(id, { imagePath: null }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "categories"] });
+      toast.success("Изображение удалено");
+    },
+    onError: (err: Error) =>
+      toast.error(err.message || "Не удалось удалить изображение"),
+  });
+
+  const saveCategoryImageUrlMu = useMutation({
+    mutationFn: ({ id, imagePath }: { id: string; imagePath: string | null }) =>
+      updateCategory(id, { imagePath }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "categories"] });
+      toast.success("Ссылка на изображение сохранена");
+    },
+    onError: (err: Error) =>
+      toast.error(err.message || "Не удалось сохранить ссылку"),
+  });
+
   const updateMu = useMutation({
     mutationFn: ({ id, body }: { id: string; body: unknown }) =>
       updateCategory(id, body),
@@ -179,8 +242,7 @@ export function CategoriesPage() {
       setEditing(null);
       toast.success("Изменения сохранены");
     },
-    onError: (err: Error) =>
-      toast.error(err.message || "Не удалось сохранить"),
+    onError: (err: Error) => toast.error(err.message || "Не удалось сохранить"),
   });
   const deleteMu = useMutation({
     mutationFn: deleteCategory,
@@ -188,8 +250,7 @@ export function CategoriesPage() {
       queryClient.invalidateQueries({ queryKey: ["admin", "categories"] });
       toast.success("Категория удалена");
     },
-    onError: (err: Error) =>
-      toast.error(err.message || "Не удалось удалить"),
+    onError: (err: Error) => toast.error(err.message || "Не удалось удалить"),
   });
   const bulkDeleteMu = useMutation({
     mutationFn: (ids: string[]) => bulkDeleteCategories(ids),
@@ -233,7 +294,10 @@ export function CategoriesPage() {
       id: string;
       targetLocales?: string[];
     }) =>
-      translateCategory(id, targetLocales?.length ? { targetLocales } : undefined),
+      translateCategory(
+        id,
+        targetLocales?.length ? { targetLocales } : undefined,
+      ),
     onMutate: ({ id }) => {
       setTranslatingId(id);
     },
@@ -309,8 +373,8 @@ export function CategoriesPage() {
               onClick={() => setFilterOpen(false)}
               aria-hidden
             />
-            <div className="fixed top-0 right-0 h-screen w-[min(100%,28rem)] max-w-full flex flex-col bg-ayvan-panel border-l border-border shadow-2xl z-50">
-              <div className="flex items-center justify-between shrink-0 px-4 py-3 border-b border-border bg-ayvan-panel">
+            <div className="fixed top-0 right-0 h-screen w-[min(100%,28rem)] max-w-full flex flex-col bg-app-panel border-l border-border shadow-2xl z-50">
+              <div className="flex items-center justify-between shrink-0 px-4 py-3 border-b border-border bg-app-panel">
                 <h2 className="text-lg font-semibold text-stone-100 truncate pr-2">
                   Фильтры и сортировка
                 </h2>
@@ -419,7 +483,7 @@ export function CategoriesPage() {
 
       <div className="card overflow-hidden flex flex-col">
         {selectedIds.size > 0 && (
-          <div className="shrink-0 flex flex-wrap items-center gap-3 px-4 py-3 border-b border-border bg-ayvan-panel/50">
+          <div className="shrink-0 flex flex-wrap items-center gap-3 px-4 py-3 border-b border-border bg-app-panel/50">
             <span className="text-sm text-stone-300">
               Выбрано: {selectedIds.size}
             </span>
@@ -463,126 +527,154 @@ export function CategoriesPage() {
         )}
         <div className="overflow-auto max-h-[calc(100vh-16rem)] min-h-0">
           <table className="w-full">
-            <thead className="sticky top-0 z-10 bg-ayvan-panel shadow-[0_1px_0_0_rgba(0,0,0,0.1)]">
+            <thead className="sticky top-0 z-10 bg-app-panel shadow-[0_1px_0_0_rgba(0,0,0,0.1)]">
               <tr className="border-b border-border">
-              <th className="w-10 px-2 py-3 text-left">
-                <input
-                  type="checkbox"
-                  checked={
-                    paginatedList.length > 0 &&
-                    paginatedList.every((i) => selectedIds.has(i.id))
-                  }
-                  onChange={selectAllOnPage}
-                  className="checkbox"
-                  title="Выбрать все на странице"
-                />
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-stone-400 uppercase tracking-wider">
-                Тип меню
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-stone-400 uppercase tracking-wider">
-                Название
-              </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-stone-400 uppercase tracking-wider">
-                Действия
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/70">
-            {paginatedList.map((item) => {
-              const typeName = getTypeName(item.menuTypeId);
-              const translations = item.translations ?? [];
-              return (
-                <tr
-                  key={item.id}
-                  role="button"
-                  tabIndex={0}
-                  className={`hover:bg-ayvan-panel/50 transition-colors cursor-pointer ${selectedIds.has(item.id) ? "bg-ayvan-accent/8" : ""}`}
-                  onClick={() => setEditing(item)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setEditing(item);
+                <th className="w-10 px-2 py-3 text-left">
+                  <input
+                    type="checkbox"
+                    checked={
+                      paginatedList.length > 0 &&
+                      paginatedList.every((i) => selectedIds.has(i.id))
                     }
-                  }}
-                  title="Нажмите для редактирования"
-                >
-                  <td
-                    className="w-10 px-2 py-3 align-top"
-                    onClick={(e) => e.stopPropagation()}
+                    onChange={selectAllOnPage}
+                    className="checkbox"
+                    title="Выбрать все на странице"
+                  />
+                </th>
+                <th className="w-16 px-2 py-3 text-left text-xs font-medium text-stone-400 uppercase tracking-wider">
+                  Фото
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-stone-400 uppercase tracking-wider">
+                  Тип меню
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-stone-400 uppercase tracking-wider">
+                  Название
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-stone-400 uppercase tracking-wider">
+                  Действия
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/70">
+              {paginatedList.map((item) => {
+                const typeName = getTypeName(item.menuTypeId);
+                const translations = item.translations ?? [];
+                return (
+                  <tr
+                    key={item.id}
+                    role="button"
+                    tabIndex={0}
+                    className={`hover:bg-app-panel/50 transition-colors cursor-pointer ${selectedIds.has(item.id) ? "bg-app-accent/8" : ""}`}
+                    onClick={() => setEditing(item)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setEditing(item);
+                      }
+                    }}
+                    title="Нажмите для редактирования"
                   >
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(item.id)}
-                      onChange={() => toggleSelected(item.id)}
-                      className="checkbox"
-                    />
-                  </td>
-                  <td className="px-4 py-3 text-stone-400 font-mono text-sm">
-                    {typeName}
-                  </td>
-                  <td className="px-4 py-3 max-w-[220px] align-top">
-                    <div className="space-y-1.5">
-                      {translations.length > 0 ? translations.map((t) => (
-                        <div key={t.locale} className="flex items-baseline gap-2">
-                          <span className="shrink-0 rounded bg-ayvan-bg-dark border border-border px-1.5 py-0.5 text-xs font-medium text-fg-muted">{t.locale}</span>
-                          <span className="text-stone-100 text-sm truncate" title={t.name}>{t.name || '—'}</span>
-                        </div>
-                      )) : <span className="text-stone-500 text-sm">—</span>}
-                    </div>
-                  </td>
-                  <td
-                    className="px-4 py-3 text-right"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditing(item);
-                        }}
-                        className="btn-ghost text-ayvan-accent hover:bg-ayvan-accent/10"
-                        title="Изменить"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setTranslateModalItem(item);
-                        }}
-                        disabled={
-                          translatingId != null || bulkTranslateMu.isPending
-                        }
-                        className="btn-ghost text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
-                        title={
-                          translatingId === item.id
-                            ? "Перевод..."
-                            : "Перевести на выбранные языки"
-                        }
-                      >
-                        {translatingId === item.id ? (
-                          <span className="inline-block w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                    <td
+                      className="w-10 px-2 py-3 align-top"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(item.id)}
+                        onChange={() => toggleSelected(item.id)}
+                        className="checkbox"
+                      />
+                    </td>
+                    <td className="w-16 px-2 py-3 align-top">
+                      {publicUploadUrl(item.imagePath ?? null) ? (
+                        <img
+                          src={publicUploadUrl(item.imagePath ?? null)!}
+                          alt=""
+                          className="w-12 h-9 rounded object-cover border border-border"
+                        />
+                      ) : (
+                        <span className="text-stone-600 text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-stone-400 font-mono text-sm">
+                      {typeName}
+                    </td>
+                    <td className="px-4 py-3 max-w-[220px] align-top">
+                      <div className="space-y-1.5">
+                        {translations.length > 0 ? (
+                          translations.map((t) => (
+                            <div
+                              key={t.locale}
+                              className="flex items-baseline gap-2"
+                            >
+                              <span className="shrink-0 rounded bg-app-bg border border-border px-1.5 py-0.5 text-xs font-medium text-fg-muted">
+                                {t.locale}
+                              </span>
+                              <span
+                                className="text-stone-100 text-sm truncate"
+                                title={t.name}
+                              >
+                                {t.name || "—"}
+                              </span>
+                            </div>
+                          ))
                         ) : (
-                          <Languages className="w-4 h-4" />
+                          <span className="text-stone-500 text-sm">—</span>
                         )}
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm("Удалить?")) deleteMu.mutate(item.id);
-                        }}
-                        className="btn-danger"
-                        title="Удалить"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
+                      </div>
+                    </td>
+                    <td
+                      className="px-4 py-3 text-right"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditing(item);
+                          }}
+                          className="btn-ghost text-app-accent hover:bg-app-accent/10"
+                          title="Изменить"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTranslateModalItem(item);
+                          }}
+                          disabled={
+                            translatingId != null || bulkTranslateMu.isPending
+                          }
+                          className="btn-ghost text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
+                          title={
+                            translatingId === item.id
+                              ? "Перевод..."
+                              : "Перевести на выбранные языки"
+                          }
+                        >
+                          {translatingId === item.id ? (
+                            <span className="inline-block w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <Languages className="w-4 h-4" />
+                          )}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm("Удалить?")) deleteMu.mutate(item.id);
+                          }}
+                          className="btn-danger"
+                          title="Удалить"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
           </table>
         </div>
         {total > 0 && (
@@ -594,7 +686,10 @@ export function CategoriesPage() {
             pageSize={pageSize}
             pageSizeOptions={PAGE_SIZE_OPTIONS}
             onPageChange={goToPage}
-            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
           />
         )}
       </div>
@@ -603,7 +698,9 @@ export function CategoriesPage() {
         <CreateCategoryModal
           menuTypes={menuTypesList}
           onClose={() => setModal(null)}
-          onSubmit={(body) => createMu.mutate(body)}
+          onSubmit={(body, imageFile, imageUrl) =>
+            createMu.mutate({ body, imageFile, imageUrl })
+          }
           isLoading={createMu.isPending}
         />
       )}
@@ -617,8 +714,25 @@ export function CategoriesPage() {
             isLoading={updateMu.isPending}
             onOpenTranslate={() => setTranslateModalItem(editing)}
             isTranslating={translateMu.isPending || bulkTranslateMu.isPending}
+            imagePath={editing.imagePath ?? null}
+            onUploadImage={(file) =>
+              uploadCategoryImageMu.mutateAsync({
+                id: editing.id,
+                file,
+              })
+            }
+            onRemoveImage={() => removeCategoryImageMu.mutateAsync(editing.id)}
+            isUploadingImage={uploadCategoryImageMu.isPending}
+            isRemovingImage={removeCategoryImageMu.isPending}
+            onSaveImageUrl={(imagePath) =>
+              saveCategoryImageUrlMu.mutateAsync({
+                id: editing.id,
+                imagePath,
+              })
+            }
+            isSavingImageUrl={saveCategoryImageUrlMu.isPending}
           />,
-          document.body
+          document.body,
         )}
       {translateModalItem &&
         createPortal(
@@ -627,7 +741,9 @@ export function CategoriesPage() {
             entityId={translateModalItem.id}
             title="Перевести категорию"
             existingLocales={
-              translateModalItem.translations?.map((t: { locale: string }) => t.locale) ?? []
+              translateModalItem.translations?.map(
+                (t: { locale: string }) => t.locale,
+              ) ?? []
             }
             languages={languages}
             onConfirm={(targetLocales: string[]) =>
@@ -639,7 +755,7 @@ export function CategoriesPage() {
             onClose={() => setTranslateModalItem(null)}
             isPending={translateMu.isPending || bulkTranslateMu.isPending}
           />,
-          document.body
+          document.body,
         )}
       {bulkTranslateOpen &&
         selectedRows.length > 0 &&
@@ -660,7 +776,7 @@ export function CategoriesPage() {
             onClose={() => setBulkTranslateOpen(false)}
             isPending={bulkTranslateMu.isPending}
           />,
-          document.body
+          document.body,
         )}
     </div>
   );
@@ -674,11 +790,20 @@ function CreateCategoryModal({
 }: {
   menuTypes: MenuTypeOption[] | undefined;
   onClose: () => void;
-  onSubmit: (body: unknown) => void;
+  onSubmit: (
+    body: unknown,
+    imageFile?: File | null,
+    imageUrl?: string,
+  ) => void;
   isLoading: boolean;
 }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [menuTypeId, setMenuTypeId] = useState(menuTypes?.[0]?.id ?? "");
   const [nameRu, setNameRu] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState("");
+
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -686,13 +811,41 @@ function CreateCategoryModal({
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [onClose]);
+
+  useEffect(() => {
+    return () => {
+      if (imagePreview) URL.revokeObjectURL(imagePreview);
+    };
+  }, [imagePreview]);
+
+  const onPickImage = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setImageUrl("");
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(f);
+    setImagePreview(URL.createObjectURL(f));
+    e.target.value = "";
+  };
+
+  const clearPickedImage = () => {
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(null);
+    setImagePreview(null);
+  };
+
+  const onImageUrlChange = (value: string) => {
+    setImageUrl(value);
+    if (value.trim()) clearPickedImage();
+  };
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/80 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto bg-stone-950/80 backdrop-blur-sm"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="card p-6 max-w-md w-full space-y-5"
+        className="card p-6 max-w-md w-full space-y-5 my-8"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2">
@@ -734,15 +887,97 @@ function CreateCategoryModal({
             className="input-dark"
           />
         </div>
+        <div className="space-y-3">
+          <label className="block text-sm font-medium text-stone-400">
+            Изображение
+          </label>
+          <p className="text-xs text-stone-500">
+            Файл загружается на сервер. Если указана ссылка — сохранится URL
+            (приоритет у файла, если выбраны оба).
+          </p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/jpg,image/webp"
+            onChange={onPickImage}
+            className="hidden"
+          />
+          <div className="flex flex-wrap items-start gap-3">
+            {imagePreview ? (
+              <div className="relative w-32 h-32 rounded-lg overflow-hidden border border-border bg-stone-900/50 shrink-0">
+                <img
+                  src={imagePreview}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            ) : imageUrl.trim() && isValidHttpImageUrl(imageUrl.trim()) ? (
+              <div className="relative w-32 h-32 rounded-lg overflow-hidden border border-border bg-stone-900/50 shrink-0">
+                <img
+                  src={imageUrl.trim()}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            ) : (
+              <div className="w-32 h-32 rounded-lg border border-dashed border-border flex items-center justify-center text-stone-500 text-xs text-center px-2">
+                Нет фото
+              </div>
+            )}
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-app-accent/20 text-app-accent border border-app-accent/40 hover:bg-app-accent/30 disabled:opacity-50 text-sm font-medium"
+              >
+                <ImagePlus className="w-4 h-4" />
+                {imagePreview ? "Заменить файл" : "Выбрать файл"}
+              </button>
+              {imagePreview ? (
+                <button
+                  type="button"
+                  onClick={clearPickedImage}
+                  disabled={isLoading}
+                  className="btn-secondary text-sm py-2"
+                >
+                  Убрать файл
+                </button>
+              ) : null}
+            </div>
+          </div>
+          <div className="space-y-1.5 pt-1 border-t border-border/80">
+            <label className="block text-xs font-medium text-stone-500">
+              Или ссылка на изображение (https://…)
+            </label>
+            <input
+              type="url"
+              value={imageUrl}
+              onChange={(e) => onImageUrlChange(e.target.value)}
+              placeholder="https://example.com/photo.jpg"
+              className="input-dark text-sm"
+              disabled={isLoading}
+            />
+          </div>
+        </div>
         <div className="flex gap-2 justify-end pt-2">
           <button
             type="button"
-            onClick={() =>
-              onSubmit({
-                menuTypeId,
-                translations: [{ locale: "ru", name: nameRu }],
-              })
-            }
+            onClick={() => {
+              const urlTrim = imageUrl.trim();
+              if (!imageFile && urlTrim && !isValidHttpImageUrl(urlTrim)) {
+                toast.error("Некорректная ссылка (нужен http:// или https://)");
+                return;
+              }
+              onSubmit(
+                {
+                  menuTypeId,
+                  translations: [{ locale: "ru", name: nameRu }],
+                },
+                imageFile,
+                urlTrim || undefined,
+              );
+            }}
             disabled={isLoading}
             className="btn-primary"
           >
@@ -764,6 +999,13 @@ function EditCategoryModal({
   isLoading,
   onOpenTranslate,
   isTranslating,
+  imagePath,
+  onUploadImage,
+  onRemoveImage,
+  isUploadingImage,
+  isRemovingImage,
+  onSaveImageUrl,
+  isSavingImageUrl,
 }: {
   initial: CategoryRow;
   menuTypes: MenuTypeOption[] | undefined;
@@ -772,19 +1014,49 @@ function EditCategoryModal({
   isLoading: boolean;
   onOpenTranslate?: () => void;
   isTranslating?: boolean;
+  imagePath?: string | null;
+  onUploadImage?: (file: File) => Promise<void>;
+  onRemoveImage?: () => Promise<void>;
+  isUploadingImage?: boolean;
+  isRemovingImage?: boolean;
+  onSaveImageUrl?: (imagePath: string | null) => Promise<void>;
+  isSavingImageUrl?: boolean;
 }) {
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
+  const photoUrl = publicUploadUrl(imagePath ?? null);
+  const [linkInput, setLinkInput] = useState(() =>
+    imagePath && isValidHttpImageUrl(imagePath) ? imagePath.trim() : "",
+  );
+
+  useEffect(() => {
+    if (!imagePath) {
+      setLinkInput("");
+      return;
+    }
+    if (isValidHttpImageUrl(imagePath)) {
+      setLinkInput(imagePath.trim());
+    } else {
+      setLinkInput("");
+    }
+  }, [imagePath]);
+
+  const hasLocalUpload = !!imagePath && !isValidHttpImageUrl(imagePath);
+
   const initialTranslations = initial.translations ?? [];
   const [translations, setTranslations] = useState<TranslationEntry[]>(
     initialTranslations.length > 0
-      ? initialTranslations.map((t) => ({ locale: t.locale, name: t.name ?? "" }))
-      : [{ locale: "ru", name: "" }]
+      ? initialTranslations.map((t) => ({
+          locale: t.locale,
+          name: t.name ?? "",
+        }))
+      : [{ locale: "ru", name: "" }],
   );
   const [activeLocaleIndex, setActiveLocaleIndex] = useState(0);
   const [menuTypeId, setMenuTypeId] = useState(initial.menuTypeId);
 
   const updateTranslation = (index: number, value: string) => {
     setTranslations((prev) =>
-      prev.map((t, i) => (i === index ? { ...t, name: value } : t))
+      prev.map((t, i) => (i === index ? { ...t, name: value } : t)),
     );
   };
 
@@ -812,33 +1084,165 @@ function EditCategoryModal({
         aria-hidden
       />
       <div
-        className="fixed top-0 right-0 z-50 h-full w-[50vw] min-w-[320px] max-w-full flex flex-col border-l border-border bg-ayvan-panel shadow-2xl offcanvas-slide-in"
+        className="fixed top-0 right-0 z-50 h-full w-[50vw] min-w-[320px] max-w-full flex flex-col border-l border-border bg-app-panel shadow-2xl offcanvas-slide-in"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="edit-category-title"
       >
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-6 py-4">
-          <h2 id="edit-category-title" className="text-lg font-semibold text-stone-100">
+          <h2
+            id="edit-category-title"
+            className="text-lg font-semibold text-stone-100"
+          >
             Изменить категорию
           </h2>
-          <button type="button" onClick={onClose} className="btn-ghost p-2 rounded-lg shrink-0" aria-label="Закрыть">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-ghost p-2 rounded-lg shrink-0"
+            aria-label="Закрыть"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-stone-400">Тип меню</label>
-            <select value={menuTypeId} onChange={(e) => setMenuTypeId(e.target.value)} className="input-dark">
+            <label className="block text-sm font-medium text-stone-400">
+              Тип меню
+            </label>
+            <select
+              value={menuTypeId}
+              onChange={(e) => setMenuTypeId(e.target.value)}
+              className="input-dark"
+            >
               {menuTypes?.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.translations?.find((x) => x.locale === "ru")?.name ?? t.code}
+                  {t.translations?.find((x) => x.locale === "ru")?.name ??
+                    t.code}
                 </option>
               ))}
             </select>
           </div>
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-stone-400">
+              Изображение
+            </label>
+            <input
+              ref={imageFileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/webp"
+              className="hidden"
+              onChange={async (e: ChangeEvent<HTMLInputElement>) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (!f || !onUploadImage) return;
+                await onUploadImage(f);
+              }}
+            />
+            <div className="flex flex-wrap items-start gap-3">
+              {photoUrl ? (
+                <div className="relative w-36 h-28 rounded-lg overflow-hidden border border-border bg-stone-900/50 shrink-0">
+                  <img
+                    src={photoUrl}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ) : (
+                <div className="w-36 h-28 rounded-lg border border-dashed border-border flex items-center justify-center text-stone-500 text-xs text-center px-2">
+                  Нет фото
+                </div>
+              )}
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => imageFileInputRef.current?.click()}
+                  disabled={
+                    isUploadingImage || isRemovingImage || !onUploadImage
+                  }
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-app-accent/20 text-app-accent border border-app-accent/40 hover:bg-app-accent/30 disabled:opacity-50 text-sm font-medium"
+                >
+                  {isUploadingImage ? (
+                    <span className="inline-block w-4 h-4 border-2 border-app-accent border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <ImagePlus className="w-4 h-4" />
+                  )}
+                  {photoUrl ? "Заменить" : "Загрузить"}
+                </button>
+                {photoUrl && onRemoveImage ? (
+                  <button
+                    type="button"
+                    onClick={() => void onRemoveImage()}
+                    disabled={isUploadingImage || isRemovingImage}
+                    className="btn-secondary text-sm py-2"
+                  >
+                    {isRemovingImage ? "Удаление…" : "Удалить фото"}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {hasLocalUpload ? (
+              <p className="text-xs text-stone-500">
+                Сейчас файл на сервере. Чтобы использовать ссылку, вставьте URL
+                ниже и нажмите «Сохранить ссылку» — она заменит файл.
+              </p>
+            ) : null}
+            <div className="space-y-2 pt-2 border-t border-border/80">
+              <label className="block text-sm font-medium text-stone-400">
+                Или ссылка на изображение
+              </label>
+              <p className="text-xs text-stone-500">
+                Полный URL (https://…). Пустое поле и «Сохранить ссылку» сбросит
+                только внешнюю ссылку.
+              </p>
+              <input
+                type="url"
+                value={linkInput}
+                onChange={(e) => setLinkInput(e.target.value)}
+                placeholder="https://example.com/image.jpg"
+                className="input-dark"
+                disabled={
+                  isSavingImageUrl ||
+                  isUploadingImage ||
+                  isRemovingImage
+                }
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  const t = linkInput.trim();
+                  if (t && !isValidHttpImageUrl(t)) {
+                    toast.error(
+                      "Некорректная ссылка (нужен http:// или https://)",
+                    );
+                    return;
+                  }
+                  if (!onSaveImageUrl) return;
+                  if (!t) {
+                    if (imagePath && isValidHttpImageUrl(imagePath)) {
+                      await onSaveImageUrl(null);
+                    }
+                    return;
+                  }
+                  await onSaveImageUrl(t);
+                }}
+                disabled={
+                  isSavingImageUrl ||
+                  isUploadingImage ||
+                  isRemovingImage ||
+                  !onSaveImageUrl
+                }
+                className="btn-secondary text-sm"
+              >
+                {isSavingImageUrl ? "Сохранение…" : "Сохранить ссылку"}
+              </button>
+            </div>
+          </div>
           <div className="space-y-3">
-            <h3 className="text-sm font-medium text-stone-400 uppercase tracking-wider">Переводы</h3>
+            <h3 className="text-sm font-medium text-stone-400 uppercase tracking-wider">
+              Переводы
+            </h3>
             <div className="flex flex-wrap items-center gap-1 border-b border-border pb-0">
               {translations.map((t, index) => (
                 <button
@@ -847,8 +1251,8 @@ function EditCategoryModal({
                   onClick={() => setActiveLocaleIndex(index)}
                   className={`px-3 py-2.5 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px ${
                     activeLocaleIndex === index
-                      ? "border-ayvan-accent text-ayvan-accent bg-ayvan-panel/80"
-                      : "border-transparent text-stone-400 hover:text-stone-300 hover:bg-ayvan-panel/50"
+                      ? "border-app-accent text-app-accent bg-app-panel/80"
+                      : "border-transparent text-stone-400 hover:text-stone-300 hover:bg-app-panel/50"
                   }`}
                 >
                   {t.locale.toUpperCase()}
@@ -860,7 +1264,9 @@ function EditCategoryModal({
                   onClick={onOpenTranslate}
                   disabled={isTranslating}
                   className="ml-auto px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 -mb-px border-transparent text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 disabled:opacity-50 inline-flex items-center gap-1.5"
-                  title={isTranslating ? "Перевод..." : "Перевести на другие языки"}
+                  title={
+                    isTranslating ? "Перевод..." : "Перевести на другие языки"
+                  }
                 >
                   {isTranslating ? (
                     <span className="inline-block w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
@@ -871,22 +1277,27 @@ function EditCategoryModal({
                 </button>
               )}
             </div>
-            {translations[activeLocaleIndex] && (() => {
-              const t = translations[activeLocaleIndex];
-              const index = activeLocaleIndex;
-              return (
-                <div className="rounded-lg border border-border bg-ayvan-panel/50 p-4 space-y-4">
-                  <div className="space-y-2">
-                    <label className="block text-sm font-medium text-stone-400">Название</label>
-                    <input
-                      value={t.name}
-                      onChange={(e) => updateTranslation(index, e.target.value)}
-                      className="input-dark"
-                    />
+            {translations[activeLocaleIndex] &&
+              (() => {
+                const t = translations[activeLocaleIndex];
+                const index = activeLocaleIndex;
+                return (
+                  <div className="rounded-lg border border-border bg-app-panel/50 p-4 space-y-4">
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-stone-400">
+                        Название
+                      </label>
+                      <input
+                        value={t.name}
+                        onChange={(e) =>
+                          updateTranslation(index, e.target.value)
+                        }
+                        className="input-dark"
+                      />
+                    </div>
                   </div>
-                </div>
-              );
-            })()}
+                );
+              })()}
           </div>
         </div>
         <div className="shrink-0 flex gap-2 justify-end border-t border-border px-6 py-4">
@@ -898,7 +1309,10 @@ function EditCategoryModal({
             onClick={() =>
               onSubmit({
                 menuTypeId,
-                translations: translations.map((t) => ({ locale: t.locale, name: t.name })),
+                translations: translations.map((t) => ({
+                  locale: t.locale,
+                  name: t.name,
+                })),
               })
             }
             disabled={isLoading}
