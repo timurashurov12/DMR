@@ -15,11 +15,20 @@ if (existsSync(rootFromRoot)) config({ path: rootFromRoot });
 // при запуске из apps/api подгружаем корень репо, чтобы GEMINI_API_KEY и др. были доступны
 if (cwd.includes('apps/api') && existsSync(rootFromApi)) config({ path: rootFromApi, override: true });
 
-// На Vercel (serverless) каталог деплоя только на чтение; пишем только в /tmp.
-const UPLOADS_DIR =
-  process.env.VERCEL === '1' || process.env.AWS_LAMBDA_FUNCTION_NAME
-    ? join('/tmp', 'dmr-uploads')
-    : join(process.cwd(), 'uploads');
+/** Загрузки: локально в ./uploads; на Vercel/Lambda cwd = /var/task (только чтение) — в /tmp. */
+function resolveUploadsDir(): string {
+  if (process.env.UPLOADS_DIR) return process.env.UPLOADS_DIR;
+  const root = process.cwd();
+  if (root.startsWith('/var/task')) {
+    return join('/tmp', 'dmr-uploads');
+  }
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return join('/tmp', 'dmr-uploads');
+  }
+  return join(root, 'uploads');
+}
+
+const UPLOADS_DIR = resolveUploadsDir();
 
 async function bootstrap() {
   if (!existsSync(UPLOADS_DIR)) mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -73,4 +82,8 @@ async function bootstrap() {
     console.log('Translate: задайте GROQ_API_KEY или GEMINI_API_KEY');
   }
 }
-bootstrap();
+
+bootstrap().catch((err) => {
+  console.error('bootstrap failed', err);
+  process.exit(1);
+});
