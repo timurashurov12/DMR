@@ -1,13 +1,27 @@
-# Render Blueprint: New → Blueprint → выбрать репозиторий. Секреты задать в Dashboard.
-
-services:
-  - type: web
-    name: dmr-api
-    runtime: node
-    plan: free
-    region: frankfurt
-    buildCommand: npm ci && npm run prisma:generate -w apps/api && npm run build -w apps/api
-    startCommand: cd apps/api && npx prisma migrate deploy && npm run start:prod
-    envVars:
-      - key: NODE_VERSION
-        value: "20"
+# Exported from Render on 2026-04-08T06:20:40Z
+version: "1"
+projects:
+- name: My project
+  environments:
+  - name: Production
+    services:
+    - type: web
+      name: DMR
+      runtime: node
+      repo: https://github.com/timurashurov12/DMR
+      plan: free
+      envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: TRANSLATE_PROVIDER
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      region: oregon
+      buildCommand: npm install; npm run build
+      startCommand: npm run start
+      autoDeployTrigger: commit
