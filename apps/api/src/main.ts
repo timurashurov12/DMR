@@ -15,7 +15,11 @@ if (existsSync(rootFromRoot)) config({ path: rootFromRoot });
 // при запуске из apps/api подгружаем корень репо, чтобы GEMINI_API_KEY и др. были доступны
 if (cwd.includes('apps/api') && existsSync(rootFromApi)) config({ path: rootFromApi, override: true });
 
-const UPLOADS_DIR = join(process.cwd(), 'uploads');
+// На Vercel (serverless) каталог деплоя только на чтение; пишем только в /tmp.
+const UPLOADS_DIR =
+  process.env.VERCEL === '1' || process.env.AWS_LAMBDA_FUNCTION_NAME
+    ? join('/tmp', 'dmr-uploads')
+    : join(process.cwd(), 'uploads');
 
 async function bootstrap() {
   if (!existsSync(UPLOADS_DIR)) mkdirSync(UPLOADS_DIR, { recursive: true });
