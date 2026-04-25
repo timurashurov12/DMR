@@ -49,7 +49,7 @@ export function Features() {
           >
             Возможности
           </span>
-          <h2 className="text-4xl font-black mb-3" style={{ color: '#1a1510', letterSpacing: '-1px' }}>
+          <h2 className="text-[44px] font-black mb-3" style={{ color: '#1a1510', letterSpacing: '-1px' }}>
             Всё для удобного меню
           </h2>
           <p className="section-subtitle max-w-lg mx-auto">
