@@ -19,8 +19,8 @@ describe('Pricing', () => {
 
   it('renders Starter plan price in sum', () => {
     renderPricing();
-    expect(screen.getByText(/99 000/)).toBeTruthy();
-    expect(screen.getByText(/сум\/мес/)).toBeTruthy();
+    expect(screen.getByText('99 000')).toBeTruthy();
+    expect(screen.getAllByText('сум/мес').length).toBeGreaterThanOrEqual(1);
   });
 
   it('renders Pro plan price in sum', () => {
