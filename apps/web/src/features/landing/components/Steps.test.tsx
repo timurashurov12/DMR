@@ -21,4 +21,9 @@ describe('Steps', () => {
     expect(screen.getByText('02')).toBeTruthy();
     expect(screen.getByText('03')).toBeTruthy();
   });
+
+  it('renders pill label', () => {
+    render(<Steps />);
+    expect(screen.getByText('Как это работает')).toBeTruthy();
+  });
 });
