@@ -17,6 +17,8 @@ import { RestaurantsModule } from './restaurants/restaurants.module';
 import { MenusModule } from './menus/menus.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { TelegramModule } from './telegram/telegram.module';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { DepartmentsModule } from './departments/departments.module';
 
 const cwd = process.cwd();
 const envCandidates = [
@@ -47,6 +49,8 @@ const envFilePath = envCandidates.find((p) => existsSync(p));
     SiteSettingsModule,
     BookingsModule,
     TelegramModule,
+    SubscriptionsModule,
+    DepartmentsModule,
   ],
 })
 export class AppModule {}

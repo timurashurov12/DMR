@@ -1,14 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService } from '../telegram/telegram.service';
+import { DepartmentsService } from '../departments/departments.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
-import type { Prisma } from '@prisma/client';
+import { BookingStatus, Department } from '@prisma/client';
 
 @Injectable()
 export class BookingsService {
   constructor(
     private prisma: PrismaService,
     private telegram: TelegramService,
+    private departmentsService: DepartmentsService,
   ) {}
 
   private async nextOrderNumber(restaurantId: string): Promise<string> {
@@ -26,55 +28,19 @@ export class BookingsService {
     throw new Error('Could not allocate order number');
   }
 
-  private formatReceipt(params: {
-    restaurantName: string;
-    orderNumber: string;
-    dto: CreateBookingDto;
-    createdAt: Date;
-  }): string {
-    const { restaurantName, orderNumber, dto, createdAt } = params;
-    const lines: string[] = [];
-    lines.push(`Новый заказ №${orderNumber}`);
-    lines.push(`Ресторан: ${restaurantName}`);
-    lines.push(`Дата: ${createdAt.toLocaleString('ru-RU')}`);
-    lines.push(`Гость: ${dto.guestName}`);
-    lines.push(`Телефон: ${dto.phone}`);
-    if (dto.email) lines.push(`Email: ${dto.email}`);
-    if (dto.scheduledAt) lines.push(`Время: ${new Date(dto.scheduledAt).toLocaleString('ru-RU')}`);
-    lines.push(`Гостей: ${dto.partySize ?? 1}`);
-    if (dto.comment) lines.push(`Комментарий: ${dto.comment}`);
-    if (dto.lines?.length) {
-      lines.push('');
-      lines.push('Позиции:');
-      let sum = 0;
-      for (const l of dto.lines) {
-        const lineSum = l.quantity * l.unitPrice;
-        sum += lineSum;
-        lines.push(`• ${l.name} × ${l.quantity} = ${lineSum}`);
-      }
-      lines.push(`Итого: ${sum}`);
-    }
-    return lines.join('\n');
-  }
-
   async createPublic(restaurantId: string, dto: CreateBookingDto) {
     const restaurant = await this.prisma.restaurant.findUnique({
       where: { id: restaurantId },
     });
     if (!restaurant) throw new Error('Restaurant missing');
+    return this.create(restaurantId, dto);
+  }
 
+  async create(restaurantId: string, dto: CreateBookingDto) {
     const orderNumber = await this.nextOrderNumber(restaurantId);
+    const receiptText = this.buildReceipt(dto);
     const scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : null;
-    const itemsJson: Prisma.InputJsonValue | undefined = dto.lines?.length
-      ? ({ lines: dto.lines.map((l) => ({ ...l })) } as Prisma.InputJsonValue)
-      : undefined;
-
-    const receiptText = this.formatReceipt({
-      restaurantName: restaurant.name,
-      orderNumber,
-      dto,
-      createdAt: new Date(),
-    });
+    const itemsJson = dto.lines && dto.lines.length > 0 ? { lines: dto.lines } : null;
 
     const booking = await this.prisma.booking.create({
       data: {
@@ -86,32 +52,31 @@ export class BookingsService {
         scheduledAt,
         partySize: dto.partySize ?? 1,
         comment: dto.comment ?? null,
-        itemsJson,
+        itemsJson: itemsJson as any,
         receiptText,
       },
     });
 
-    const settings = await this.prisma.siteSettings.findUnique({
-      where: { restaurantId },
-    });
+    const departmentsSent: Record<string, boolean> = {};
+    const departments = await this.departmentsService.findActive(restaurantId);
 
-    const send = async (chatId: string | null | undefined) => {
-      if (!chatId?.trim()) return;
-      try {
-        await this.telegram.sendMessage(chatId.trim(), receiptText);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.error(`Telegram send failed for restaurant ${restaurantId}: ${msg}`);
-      }
-    };
+    for (const dept of departments) {
+      const sent = await this.sendToDepartment(dept, receiptText);
+      departmentsSent[dept.type.toLowerCase()] = sent;
+    }
 
-    await send(settings?.ownerTelegramChatId);
-    await send(settings?.staffTelegramChatId);
+    if (Object.keys(departmentsSent).length > 0) {
+      await this.prisma.booking.update({
+        where: { id: booking.id },
+        data: { departmentsSent: JSON.stringify(departmentsSent) },
+      });
+    }
 
     return {
       id: booking.id,
       orderNumber: booking.orderNumber,
       receiptText,
+      departmentsSent,
     };
   }
 
@@ -119,18 +84,54 @@ export class BookingsService {
     return this.prisma.booking.findMany({
       where: { restaurantId },
       orderBy: { createdAt: 'desc' },
-      take: 500,
     });
   }
 
-  async updateStatus(
-    restaurantId: string,
-    id: string,
-    status: 'PENDING' | 'CONFIRMED' | 'CANCELLED',
-  ) {
-    return this.prisma.booking.updateMany({
+  async updateStatus(restaurantId: string, id: string, status: BookingStatus) {
+    return this.prisma.booking.update({
       where: { id, restaurantId },
       data: { status },
     });
+  }
+
+  private async sendToDepartment(dept: Department, receiptText: string): Promise<boolean> {
+    if (dept.telegramChatId?.trim()) {
+      try {
+        await this.telegram.sendMessage(dept.telegramChatId.trim(), receiptText);
+        return true;
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Telegram send to department ${dept.id}: ${msg}`);
+        return false;
+      }
+    }
+    if (dept.printerIp) {
+      console.log(`[PRINTER] Would send to ${dept.printerIp}:${dept.printerPort}`);
+      return true;
+    }
+    return false;
+  }
+
+  private buildReceipt(dto: CreateBookingDto): string {
+    const lines: string[] = [];
+    lines.push(`Заказ #${Date.now().toString(36).toUpperCase()}`);
+    lines.push('');
+    if (dto.guestName) lines.push(`Гость: ${dto.guestName}`);
+    if (dto.phone) lines.push(`Тел: ${dto.phone}`);
+    if (dto.email) lines.push(`Email: ${dto.email}`);
+    if (dto.partySize) lines.push(`Гостей: ${dto.partySize}`);
+    if (dto.scheduledAt) lines.push(`Дата: ${new Date(dto.scheduledAt).toLocaleString('ru')}`);
+    if (dto.comment) lines.push(`Комментарий: ${dto.comment}`);
+    if (dto.lines && dto.lines.length > 0) {
+      lines.push('');
+      lines.push('Заказ:');
+      for (const item of dto.lines) {
+        lines.push(`${item.quantity} x ${item.name} — ${item.unitPrice} ₸`);
+      }
+      const total = dto.lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
+      lines.push('');
+      lines.push(`Итого: ${total} ₸`);
+    }
+    return lines.join('\n');
   }
 }

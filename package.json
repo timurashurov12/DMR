@@ -4,7 +4,7 @@
   "workspaces": [
     "apps/*"
   ],
-  "scripts": {
+"scripts": {
     "dev:api": "npm run dev -w apps/api",
     "dev:web": "npm run dev -w apps/web",
     "build:api": "npm run build -w apps/api",

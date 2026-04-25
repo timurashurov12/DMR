@@ -18,6 +18,23 @@ enum BookingStatus {
   CANCELLED
 }
 
+enum UserRole {
+  USER
+  PLATFORM_OWNER
+}
+
+enum SubscriptionPlan {
+  FREE
+  STARTER
+  PRO
+}
+
+enum DepartmentType {
+  KITCHEN
+  BAR
+  DELIVERY
+}
+
 model Language {
   id        String   @id @default(cuid())
   code      String   @unique @db.VarChar(10)
@@ -37,6 +54,8 @@ model Restaurant {
   menus        Menu[]
   siteSettings SiteSettings?
   bookings     Booking[]
+  subscription Subscription?
+  departments  Department[]
 }
 
 model RestaurantDomain {
@@ -151,12 +170,15 @@ model MenuItemTranslation {
   menuItem    MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
 
   @@unique([menuItemId, locale])
+  @@index([menuItemId])
+  @@index([locale])
 }
 
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
   passwordHash String
+  role         UserRole @default(USER)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -177,6 +199,19 @@ model SiteSettings {
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 }
 
+model Subscription {
+  id               String           @id @default(cuid())
+  restaurantId     String           @unique
+  plan             SubscriptionPlan @default(FREE)
+  trialEndsAt      DateTime?
+  stripeCustomerId String?
+  stripeSubId      String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+}
+
 model Booking {
   id             String        @id @default(cuid())
   restaurantId   String
@@ -190,6 +225,7 @@ model Booking {
   status         BookingStatus @default(PENDING)
   itemsJson      Json?
   receiptText    String?       @db.Text
+  departmentsSent String?      @db.Text
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -197,4 +233,23 @@ model Booking {
 
   @@unique([restaurantId, orderNumber])
   @@index([restaurantId, createdAt])
+}
+
+model Department {
+  id            String         @id @default(cuid())
+  restaurantId  String
+  name          String         @db.VarChar(100)
+  type          DepartmentType
+  telegramChatId String?       @db.VarChar(64)
+  printerIp     String?       @db.VarChar(45)
+  printerPort   Int?
+  isActive      Boolean       @default(true)
+  sortOrder     Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@unique([restaurantId, type])
+  @@index([restaurantId])
 }

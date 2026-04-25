@@ -616,6 +616,7 @@ export type BookingAdminRow = {
   receiptText: string | null;
   /** Saved order lines when guest added positions (shape: `{ lines: { name, quantity, unitPrice }[] }`) */
   itemsJson: unknown | null;
+  departmentsSent: string | null;
   createdAt: string;
 };
 
@@ -636,4 +637,68 @@ export async function updateBookingStatusAdmin(
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
+}
+
+// Departments
+export type DepartmentDto = {
+  id: string;
+  name: string;
+  type: 'KITCHEN' | 'RECEPTION' | 'BAR';
+  telegramChatId: string | null;
+  printerIp: string | null;
+  printerPort: number | null;
+  isActive: boolean;
+  sortOrder: number;
+};
+
+export async function fetchDepartmentsAdmin() {
+  const res = await fetch(`${API_BASE}/admin/departments`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to fetch departments');
+  return res.json() as Promise<DepartmentDto[]>;
+}
+
+export async function createDepartmentAdmin(body: {
+  name: string;
+  type: 'KITCHEN' | 'RECEPTION' | 'BAR';
+  telegramChatId?: string;
+  printerIp?: string;
+  printerPort?: number;
+  isActive?: boolean;
+  sortOrder?: number;
+}) {
+  const res = await fetch(`${API_BASE}/admin/departments`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function updateDepartmentAdmin(
+  id: string,
+  body: {
+    name?: string;
+    telegramChatId?: string;
+    printerIp?: string;
+    printerPort?: number;
+    isActive?: boolean;
+    sortOrder?: number;
+  },
+) {
+  const res = await fetch(`${API_BASE}/admin/departments/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function deleteDepartmentAdmin(id: string) {
+  const res = await fetch(`${API_BASE}/admin/departments/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: headers(),
+  });
+  if (!res.ok) throw new Error(await res.text());
 }

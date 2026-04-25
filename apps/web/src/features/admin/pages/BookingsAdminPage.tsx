@@ -238,6 +238,35 @@ function BookingDetailModal({
             </section>
           ) : null}
 
+          {booking.departmentsSent ? (
+            <section>
+              <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-stone-500">
+                Отправлено в отделы
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {(() => {
+                  try {
+                    const sent = JSON.parse(booking.departmentsSent) as Record<string, boolean>;
+                    return Object.entries(sent).map(([dept, ok]) => (
+                      <span
+                        key={dept}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs ${
+                          ok
+                            ? 'bg-emerald-500/15 text-emerald-400'
+                            : 'bg-red-500/15 text-red-400'
+                        }`}
+                      >
+                        {ok ? '✓' : '✗'} {dept}
+                      </span>
+                    ));
+                  } catch {
+                    return null;
+                  }
+                })()}
+              </div>
+            </section>
+          ) : null}
+
           {!booking.receiptText && lines.length === 0 && !booking.comment ? (
             <p className="text-stone-500 text-xs">Дополнительных данных нет.</p>
           ) : null}

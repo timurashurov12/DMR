@@ -13,6 +13,7 @@ import {
   Github,
   BookOpen,
   CalendarClock,
+  Building2,
 } from 'lucide-react';
 import { BRAND_SHORT } from '@/shared/lib/brand';
 
@@ -24,6 +25,7 @@ const nav = [
   { to: '/admin/categories', label: 'Категории', icon: FolderTree },
   { to: '/admin/menu-items', label: 'Блюда', icon: UtensilsCrossed },
   { to: '/admin/bookings', label: 'Заказы', icon: CalendarClock },
+  { to: '/admin/departments', label: 'Отделы', icon: Building2 },
   { to: '/admin/settings', label: 'Настройки', icon: Settings },
 ];
 

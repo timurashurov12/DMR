@@ -32,7 +32,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = () => {
     setToken(null);
-    navigate('/admin/login');
+    navigate('/login');
   };
 
   return (

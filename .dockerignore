@@ -11,6 +11,7 @@ npm-debug.log
 .idea
 dist
 build
+**/*.tsbuildinfo
 coverage
 .next
 .nuxt
