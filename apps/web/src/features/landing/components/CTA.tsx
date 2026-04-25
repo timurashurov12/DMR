@@ -41,7 +41,7 @@ export function CTA() {
           <p className="text-lg mb-10 relative" style={{ color: 'rgba(255,255,255,0.5)' }}>
             Присоединяйтесь к сотням заведений, которые уже используют цифровое меню DMR
           </p>
-          <Link to="/register" className="btn-accent text-base px-8 py-4 inline-flex relative">
+          <Link to="/register" className="btn-accent text-base px-8 py-4 inline-flex gap-2 relative">
             Создать аккаунт бесплатно
             <ArrowRight className="w-5 h-5" />
           </Link>
