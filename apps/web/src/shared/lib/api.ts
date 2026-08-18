@@ -10,6 +10,25 @@ export function publicUploadUrl(imagePath: string | null | undefined): string | 
   return `${API_BASE.replace(/\/$/, '')}${path}`;
 }
 
+export type PublicRestaurant = {
+  id: string;
+  name: string;
+  slug: string | null;
+  domains: string[];
+};
+
+export async function fetchRestaurantsPublic() {
+  const res = await fetch(`${API_BASE}/restaurants`);
+  if (!res.ok) throw new Error('Failed to fetch restaurants');
+  return res.json() as Promise<PublicRestaurant[]>;
+}
+
+export async function fetchCurrentRestaurant() {
+  const res = await fetch(`${API_BASE}/restaurants/current`);
+  if (!res.ok) throw new Error('Failed to fetch current restaurant');
+  return res.json() as Promise<PublicRestaurant | null>;
+}
+
 export async function fetchMenuTypes(locale: string) {
   const res = await fetch(`${API_BASE}/menu-types?locale=${encodeURIComponent(locale)}`);
   if (!res.ok) throw new Error('Failed to fetch menu types');

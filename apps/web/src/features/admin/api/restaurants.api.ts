@@ -6,6 +6,33 @@ export async function fetchRestaurants() {
   return res.json() as Promise<{ id: string; name: string; slug: string | null; role: string }[]>;
 }
 
+export async function fetchRestaurantDomains(restaurantId: string) {
+  const res = await fetch(`${API_BASE}/admin/restaurants/${restaurantId}/domains`, {
+    headers: headers(),
+  });
+  if (!res.ok) throw new Error('Failed to fetch domains');
+  return res.json() as Promise<string[]>;
+}
+
+export async function addRestaurantDomain(restaurantId: string, host: string) {
+  const res = await fetch(`${API_BASE}/admin/restaurants/${restaurantId}/domains`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ host }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function removeRestaurantDomain(restaurantId: string, host: string) {
+  const res = await fetch(`${API_BASE}/admin/restaurants/${restaurantId}/domains/${host}`, {
+    method: 'DELETE',
+    headers: headers(),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 export type MenuDto = { id: string; name: string; sortOrder: number; isActive: boolean };
 
 export async function fetchMenusAdmin() {

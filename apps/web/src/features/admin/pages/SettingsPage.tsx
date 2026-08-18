@@ -12,6 +12,9 @@ import {
   createUserAdmin,
   updateUserAdmin,
   deleteUserAdmin,
+  fetchRestaurantDomains,
+  addRestaurantDomain,
+  removeRestaurantDomain,
 } from "@/features/admin/lib/api";
 import { useRestaurant } from "@/features/admin/context/RestaurantContext";
 import { toast } from "sonner";
@@ -23,6 +26,7 @@ import {
   Pencil,
   Trash2,
   X,
+  Globe,
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
@@ -40,7 +44,7 @@ type UserRow = {
   updatedAt: string;
 };
 
-type SettingsTab = "appearance" | "languages" | "users";
+type SettingsTab = "appearance" | "languages" | "users" | "domains";
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -64,6 +68,8 @@ export function SettingsPage() {
 
   const [ownerTg, setOwnerTg] = useState("");
   const [staffTg, setStaffTg] = useState("");
+  const [newDomain, setNewDomain] = useState("");
+  const [deleteDomainTarget, setDeleteDomainTarget] = useState<string | null>(null);
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ["admin", "site-settings", restaurantId],
@@ -174,6 +180,36 @@ export function SettingsPage() {
       toast.error(err.message || "Не удалось сохранить настройки"),
   });
 
+  const { data: domains, isLoading: domainsLoading } = useQuery<string[]>({
+    queryKey: ["admin", "domains", restaurantId],
+    queryFn: () => fetchRestaurantDomains(restaurantId!),
+    enabled: !!restaurantId,
+  });
+
+  const addDomainMu = useMutation({
+    mutationFn: ({ host }: { host: string }) =>
+      addRestaurantDomain(restaurantId!, host),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "domains", restaurantId] });
+      setNewDomain("");
+      toast.success("Домен добавлен");
+    },
+    onError: (err: Error) =>
+      toast.error(err.message || "Не удалось добавить домен"),
+  });
+
+  const deleteDomainMu = useMutation({
+    mutationFn: ({ host }: { host: string }) =>
+      removeRestaurantDomain(restaurantId!, host),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "domains", restaurantId] });
+      setDeleteDomainTarget(null);
+      toast.success("Домен удалён");
+    },
+    onError: (err: Error) =>
+      toast.error(err.message || "Не удалось удалить домен"),
+  });
+
   const validateAndUploadFile = (file: File | null) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
@@ -276,6 +312,7 @@ export function SettingsPage() {
     { id: "appearance", label: "Внешний вид" },
     { id: "languages", label: "Языки" },
     { id: "users", label: "Пользователи" },
+    { id: "domains", label: "Домены" },
   ];
 
   return (
@@ -739,6 +776,66 @@ export function SettingsPage() {
       </section>
       )}
 
+      {activeTab === "domains" && (
+      <section className="rounded-xl border border-stone-800 bg-stone-900/50 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <Globe className="w-5 h-5 text-stone-400" />
+          <h2 className="text-lg font-medium text-stone-200">Домен</h2>
+        </div>
+        <p className="text-sm text-stone-500 mb-4">
+          Укажите субдомен, на котором будет открываться меню этого ресторана.
+          Например: <code className="text-stone-300">moscow.example.com</code>
+        </p>
+        {domainsLoading ? (
+          <div className="flex items-center gap-2 text-stone-400 py-4">
+            <span className="inline-block w-5 h-5 border-2 border-app-accent border-t-transparent rounded-full animate-spin" />
+            Загрузка...
+          </div>
+        ) : domains && domains.length > 0 ? (
+          <div className="flex items-center gap-3">
+            <div className="flex-1 px-4 py-3 rounded-lg bg-stone-800 font-mono text-stone-200">
+              {domains[0]}
+            </div>
+            <button
+              type="button"
+              onClick={() => setDeleteDomainTarget(domains[0])}
+              className="btn-ghost p-3 rounded-lg text-red-400 hover:bg-red-500/10"
+              title="Удалить"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newDomain}
+              onChange={(e) => setNewDomain(e.target.value)}
+              placeholder="subdomain.example.com"
+              className="input flex-1"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (newDomain.trim()) {
+                  addDomainMu.mutate({ host: newDomain.trim() });
+                }
+              }}
+              disabled={!newDomain.trim() || addDomainMu.isPending}
+              className="btn-primary"
+            >
+              {addDomainMu.isPending ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Plus className="w-5 h-5" />
+              )}
+              Добавить
+            </button>
+          </div>
+        )}
+      </section>
+      )}
+
       {langModal === "create" && (
         <CreateLanguageModal
           onClose={() => setLangModal(null)}
@@ -798,6 +895,16 @@ export function SettingsPage() {
             });
           }}
           isLoading={deleteUserMu.isPending}
+        />
+      )}
+
+      {deleteDomainTarget && (
+        <ConfirmDeleteModal
+          title="Удалить домен?"
+          description={`Домен ${deleteDomainTarget} не будет открывать меню ресторана.`}
+          onClose={() => setDeleteDomainTarget(null)}
+          onConfirm={() => deleteDomainMu.mutate({ host: deleteDomainTarget })}
+          isLoading={deleteDomainMu.isPending}
         />
       )}
     </div>

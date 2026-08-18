@@ -2,6 +2,12 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 export const RESTAURANT_STORAGE_KEY = 'restaurant-admin-restaurant-id';
 
+export {
+  fetchRestaurantDomains,
+  addRestaurantDomain,
+  removeRestaurantDomain,
+} from '@/features/admin/api/restaurants.api';
+
 function getToken(): string | null {
   return localStorage.getItem('restaurant-admin-token');
 }

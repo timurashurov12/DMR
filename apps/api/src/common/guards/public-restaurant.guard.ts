@@ -2,10 +2,17 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
+
+declare global {
+  namespace Express {
+    interface Request {
+      publicRestaurantId?: string | null;
+    }
+  }
+}
 
 function normalizeHost(raw: string | undefined): string | null {
   if (!raw) return null;
@@ -22,15 +29,17 @@ export class PublicRestaurantGuard implements CanActivate {
     const raw = (req.headers['x-forwarded-host'] || req.headers.host) as string | undefined;
     const host = normalizeHost(raw);
     if (!host) {
-      throw new NotFoundException('Host header missing');
+      req.publicRestaurantId = null;
+      return true;
     }
     const row = await this.prisma.restaurantDomain.findUnique({
       where: { host },
     });
-    if (!row) {
-      throw new NotFoundException('Restaurant not found for this host');
+    if (row) {
+      req.publicRestaurantId = row.restaurantId;
+    } else {
+      req.publicRestaurantId = null;
     }
-    req.publicRestaurantId = row.restaurantId;
     return true;
   }
 }

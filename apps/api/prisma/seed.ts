@@ -502,6 +502,25 @@ async function main() {
     update: { role: 'OWNER' },
   });
 
+  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+  const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
+  if (superAdminEmail && superAdminPassword) {
+    const existingSuperAdmin = await prisma.user.findUnique({
+      where: { email: superAdminEmail },
+    });
+    if (!existingSuperAdmin) {
+      const hash = await bcrypt.hash(superAdminPassword, 10);
+      await prisma.user.create({
+        data: {
+          email: superAdminEmail,
+          passwordHash: hash,
+          role: 'PLATFORM_OWNER',
+        },
+      });
+      console.log(`Super admin created: ${superAdminEmail}`);
+    }
+  }
+
   console.log('Seed completed.');
 }
 

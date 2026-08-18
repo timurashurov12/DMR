@@ -5,7 +5,17 @@ export { RESTAURANT_STORAGE_KEY, getSelectedRestaurantId, setSelectedRestaurantI
 
 export { login } from './auth.api';
 
-export { fetchRestaurants, fetchMenusAdmin, createMenu, updateMenu, deleteMenu, type MenuDto } from './restaurants.api';
+export {
+  fetchRestaurants,
+  fetchRestaurantDomains,
+  addRestaurantDomain,
+  removeRestaurantDomain,
+  fetchMenusAdmin,
+  createMenu,
+  updateMenu,
+  deleteMenu,
+  type MenuDto,
+} from './restaurants.api';
 
 export {
   fetchMenuTypesAdmin,
